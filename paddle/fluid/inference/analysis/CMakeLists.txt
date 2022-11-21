@@ -97,8 +97,8 @@ if(NOT APPLE AND NOT WIN32)
     SRCS
     analyzer_tester.cc
     EXTRA_DEPS
-    reset_tensor_array
-    paddle_inference_shared
+    ${analysis_deps}
+    paddle_inference_api
     ARGS
     --inference_model_dir=${WORD2VEC_MODEL_DIR})
 elseif(WIN32)
