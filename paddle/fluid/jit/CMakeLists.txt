@@ -71,6 +71,25 @@ if(WITH_TESTING AND NOT WIN32)
   cc_test(
     layer_test
     SRCS layer_test.cc
-    DEPS ${JIT_DEPS})
+    DEPS ${JIT_DEPS}
+         lstm_op
+         tree_conv_op
+         sample_logits_op
+         print_op
+         lod_tensor_to_array_op
+         fc_op
+         cos_sim_op
+         beam_search_op
+         attention_lstm_op
+         assert_op
+         array_to_lod_tensor_op
+         c_concat_op
+         sequence_pool_op
+         sequence_concat_op
+         fusion_lstm_op
+         fusion_gru_op
+         fusion_seqexpand_concat_fc_op
+         fusion_seqconv_eltadd_relu_op
+         generate_proposal_labels_op)
   add_dependencies(layer_test jit_download_program)
 endif()
