@@ -151,9 +151,11 @@ class TestSqueeze2MatmulFusePass(PassAutoScanTest):
         return program_config
 
     def test(self):
-        self.run_and_statis(quant=False,
-                            max_examples=25,
-                            passes=["trt_squeeze2_matmul_fuse_pass"])
+        self.run_and_statis(
+            quant=False,
+            max_examples=25,
+            passes=["trt_squeeze2_matmul_fuse_pass"],
+        )
 
 
 if __name__ == "__main__":
