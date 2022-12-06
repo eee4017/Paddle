@@ -41,21 +41,24 @@ class CastOpConverter : public OpConverter {
 
     auto* layer = TRT_ENGINE_ADD_LAYER(engine_, Identity, *input);
 
+    nvinfer1::DataType trt_out_dtype = nvinfer1::DataType::kFLOAT;
     switch (out_dtype) {
       case 2:  // INT32 = 2
-        layer->setOutputType(0, nvinfer1::DataType::kINT32);
+        trt_out_dtype = nvinfer1::DataType::kINT32;
         break;
       case 4:  // FP16 = 4
-        layer->setOutputType(0, nvinfer1::DataType::kHALF);
+        trt_out_dtype = nvinfer1::DataType::kHALF;
         break;
       case 5:  // FP32 = 5
-        layer->setOutputType(0, nvinfer1::DataType::kFLOAT);
+        trt_out_dtype = nvinfer1::DataType::kFLOAT;
         break;
       default:
-        LOG(ERROR) << "Unable to convert a fluid data type(" << out_dtype
-                   << ") to a nvinfer DataType";
+        PADDLE_THROW(platform::errors::Unimplemented(
+            "Unsupported output data type of cast op."));
         break;
     }
+    layer->setOutputType(0, trt_out_dtype);
+    layer->getOutput(0)->setType(trt_out_dtype);
 
     auto output_name = op_desc.Output("Out")[0];
     RreplenishLayerAndOutput(layer, "cast", {output_name}, test_mode);
