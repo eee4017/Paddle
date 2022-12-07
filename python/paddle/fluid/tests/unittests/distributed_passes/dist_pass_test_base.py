@@ -62,10 +62,7 @@ class DistPassTestBase(unittest.TestCase):
         if paddle.is_compiled_with_cuda():
             paddle.set_flags({'FLAGS_cudnn_deterministic': 1})
 
-        seed = int(os.environ.get('SEED', -1))
-        if seed <= 0:
-            seed = np.random.randint(low=1, high=1000000, size=[1])[0]
-            os.environ['SEED'] = str(seed)
+        seed = int(os.environ.get('SEED', 0))
         self.seed = seed
         paddle.seed(self.seed)
 
@@ -185,7 +182,7 @@ class DistPassTestBase(unittest.TestCase):
         else:
             output_dir = "test_without_pass_{}".format(pid)
         remove_path_if_exists(output_dir)
-        os.makedirs(output_dir, mode=777)
+        os.makedirs(output_dir, mode=0o777)
 
         input_dump_file = os.path.join(output_dir, 'inputs.bin')
         model_dump_file = os.path.join(output_dir, 'model.bin')
