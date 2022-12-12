@@ -154,9 +154,6 @@ class DistPassTestBase(unittest.TestCase):
                 )
                 feed = dict(zip(inputs, input_data))
                 fetch_values = exe.run(main_prog, feed=feed, fetch_list=outputs)
-                if paddle.distributed.get_rank() == 0:
-                    output_dict = OrderedDict(zip(outputs, fetch_values))
-                    print('batch {}, outputs {}'.format(batch_id, output_dict))
                 all_fetch_values.append(fetch_values)
         with open(dump_file, "wb") as f:
             pickle.dump(all_fetch_values, f)
