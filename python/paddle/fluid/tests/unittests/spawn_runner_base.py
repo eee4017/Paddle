@@ -32,7 +32,6 @@ class SpawnAssistTestArgs(object):
 
 
 class TestDistSpawnRunner(unittest.TestCase):
-
     def setUp(self):
         # NOTE(chenweihang): keep consistent with
         # TestDistBase.check_with_place
@@ -44,23 +43,27 @@ class TestDistSpawnRunner(unittest.TestCase):
 
     def _run_parallel(self, model, args):
         args.update_method = "nccl2"
-        context = paddle.distributed.spawn(func=model.run_trainer_with_spawn,
-                                           args=(args, ),
-                                           nprocs=self.nprocs,
-                                           join=True)
+        context = paddle.distributed.spawn(
+            func=model.run_trainer_with_spawn,
+            args=(args,),
+            nprocs=self.nprocs,
+            join=True,
+        )
         result_list = []
         for res_queue in context.return_queues:
             result_list.append(res_queue.get())
         return result_list
 
-    def check_dist_result_with_spawn(self, test_class, delta=1e-3):
+    def check_dist_result_with_spawn(self, test_class, rtol=1e-5, atol=1e-5):
         with _test_eager_guard():
-            self.check_dist_result_with_spawn_func(test_class=test_class,
-                                                   delta=delta)
-        self.check_dist_result_with_spawn_func(test_class=test_class,
-                                               delta=delta)
+            self.check_dist_result_with_spawn_func(
+                test_class=test_class, rtol=rtol, atol=atol
+            )
+        self.check_dist_result_with_spawn_func(
+            test_class=test_class, rtol=rtol, atol=atol
+        )
 
-    def check_dist_result_with_spawn_func(self, test_class, delta=1e-3):
+    def check_dist_result_with_spawn_func(self, test_class, rtol, atol):
         # 0. prepare model and args
         model = test_class()
         args = SpawnAssistTestArgs()
@@ -81,11 +84,14 @@ class TestDistSpawnRunner(unittest.TestCase):
                 else:
                     dist_loss_sum += np.array(dist_losses[step_id])
             dist_loss = dist_loss_sum / self.nprocs
-            self.assertAlmostEqual(
-                loss,
+            np.testing.assert_allclose(
                 dist_loss,
-                delta=delta,
-                msg=
-                "The results of single-card execution and multi-card execution are inconsistent."
-                "signal-card loss is:\n{}\nmulti-card average loss is:\n{}\n".
-                format(loss, dist_loss))
+                loss,
+                rtol=rtol,
+                atol=atol,
+                equal_nan=True,
+                err_msg="The results of single-card execution and multi-card execution are inconsistent."
+                "signal-card loss is:\n{}\nmulti-card average loss is:\n{}\n".format(
+                    loss, dist_loss
+                ),
+            )
