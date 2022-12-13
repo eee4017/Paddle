@@ -1,7 +1,7 @@
 .template: &TEMPLATE
   variables:
     PADDLE_BRANCH: "${CI_COMMIT_REF_NAME}"
-    DOWNSTREAM_BRANCH: main
+    DOWNSTREAM_BRANCH: paddle-2.4-devel
   stage: deploy
   trigger:
     project: dl/dgx/paddle

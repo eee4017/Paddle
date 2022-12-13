@@ -90,16 +90,16 @@ class TrtConvertMatmulTest_dynamic(TrtLayerAutoScanTest):
 
         # The output has little diff between gpu and trt in CI-Windows-Inference
         tol_fp32 = 1e-5
-        tol_half = 1e-5
+        tol_half = 1e-3
         if os.name == 'nt':
             tol_fp32 = 1e-3
             tol_half = 1e-3
         # for dynamic_shape
         generate_dynamic_shape(attrs)
         self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 3), tol_fp32
+        yield self.create_inference_config(), (1, 3), (tol_fp32, tol_fp32)
         self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), tol_half
+        yield self.create_inference_config(), (1, 3), (tol_half, tol_half)
 
     def add_skip_trt_case(self):
         pass
@@ -176,16 +176,16 @@ class TrtConvertMatmulTest_dynamic2(TrtLayerAutoScanTest):
         ]
         # The output has little diff between gpu and trt in CI-Windows-Inference
         tol_fp32 = 1e-5
-        tol_half = 1e-5
+        tol_half = 1e-3
         if os.name == 'nt':
             tol_fp32 = 1e-3
             tol_half = 1e-3
         # for dynamic_shape
         generate_dynamic_shape(attrs)
         self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 3), tol_fp32
+        yield self.create_inference_config(), (1, 3), (tol_fp32, tol_fp32)
         self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), tol_half
+        yield self.create_inference_config(), (1, 3), (tol_half, tol_half)
 
     def add_skip_trt_case(self):
         pass
@@ -312,9 +312,9 @@ class TrtConvertMatmulTest_dynamic3(TrtLayerAutoScanTest):
 
         generate_dynamic_shape()
         self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 3), 1e-5
+        yield self.create_inference_config(), (1, 3), (1e-5, 1e-5)
         self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), 1e-3
+        yield self.create_inference_config(), (1, 3), (1e-3, 1e-3)
 
     def add_skip_trt_case(self):
         pass
