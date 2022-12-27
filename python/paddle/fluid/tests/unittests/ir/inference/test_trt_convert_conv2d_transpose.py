@@ -251,10 +251,10 @@ class TrtConvertConv2dTransposeTest2(TrtLayerAutoScanTest):
         self.trt_param.workspace_size = 1073741824
 
         def generate_input1(batch, num_channels, attrs: List[Dict[str, Any]]):
-            return np.ones([batch, num_channels, 20, 30]).astype(np.float32)
+            return np.ones([batch, num_channels, 20, 30]).astype(np.float32) / 10
 
         def generate_weight1(num_channels, attrs: List[Dict[str, Any]]):
-            return np.random.random([num_channels, 64, 3, 3]).astype(np.float32)
+            return np.random.normal(loc=0, scale=0.01, size=[num_channels, 64, 3, 3]).astype(np.float32)
 
         num_channels = 128
         batch = 1
@@ -338,18 +338,18 @@ class TrtConvertConv2dTransposeTest2(TrtLayerAutoScanTest):
         self.trt_param.precision = paddle_infer.PrecisionType.Half
         yield self.create_inference_config(), generate_trt_nodes_num(
             attrs, False
-        ), (1e0, 1e-3)
+        ), (1e-3, 1e-3)
 
         # for dynamic_shape
         generate_dynamic_shape(attrs)
         self.trt_param.precision = paddle_infer.PrecisionType.Float32
         yield self.create_inference_config(), generate_trt_nodes_num(
             attrs, True
-        ), 1e-4
+        ), (1e-5, 1e-5)
         self.trt_param.precision = paddle_infer.PrecisionType.Half
         yield self.create_inference_config(), generate_trt_nodes_num(
             attrs, True
-        ), (1e0, 1e-3)
+        ), (1e-3, 1e-3)
 
     def add_skip_trt_case(self):
         pass
