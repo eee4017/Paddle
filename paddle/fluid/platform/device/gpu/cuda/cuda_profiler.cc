@@ -25,9 +25,11 @@ void CudaProfilerInit(std::string output_file,
                      "Unsupported cuda profiler output mode, expect `kvp` or "
                      "`csv`, but received `%s`.",
                      output_mode));
+#if CUDA_VERSION < 11000
   cudaOutputMode_t mode = output_mode == "csv" ? cudaCSV : cudaKeyValuePair;
   PADDLE_ENFORCE_GPU_SUCCESS(
       cudaProfilerInitialize(config_file.c_str(), output_file.c_str(), mode));
+#endif
 }
 
 void CudaProfilerStart() { PADDLE_ENFORCE_GPU_SUCCESS(cudaProfilerStart()); }

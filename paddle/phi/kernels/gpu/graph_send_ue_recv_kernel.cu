@@ -18,6 +18,7 @@
 #include "paddle/phi/kernels/impl/graph_message_passing_impl.h"
 
 #include <thrust/device_vector.h>
+#include <thrust/execution_policy.h>
 #include <thrust/fill.h>
 #include <algorithm>
 #include <vector>
