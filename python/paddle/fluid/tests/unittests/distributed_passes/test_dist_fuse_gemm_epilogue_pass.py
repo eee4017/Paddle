@@ -27,14 +27,6 @@ np.random.seed(12345)
 paddle.seed(12345)
 
 
-def verify_op_count(op_types, op_name, target_count):
-    count = 0
-    for op_type in op_types:
-        if op_type == op_name:
-            count += 1
-    return count == target_count
-
-
 class MultiFCLayer(nn.Layer):
     def __init__(self, hidden, Activation):
         super(MultiFCLayer, self).__init__()
@@ -69,9 +61,9 @@ class TestFuseGemmEpiloguePassReluFP32(DistPassTestBase):
         self.activation = nn.ReLU
         self.act_fwd_name = 'relu'
         self.act_bwd_name = 'relu_grad'
-        self.batch = 64
+        self.batch = 32
         self.seqlen = 128
-        self.hidden = 768
+        self.hidden = 128
         self.precision = 'FP32'  # FP32 or AMP
 
     def get_model(self, place):
@@ -94,7 +86,7 @@ class TestFuseGemmEpiloguePassReluFP32(DistPassTestBase):
         model = MultiFCLayer(self.hidden, self.activation)
         out = model(data, matmul_y, ele_y)
         loss = paddle.mean(out)
-        optimizer = paddle.optimizer.Adam(learning_rate=1e-3)
+        optimizer = paddle.optimizer.SGD(learning_rate=1e-3)
 
         dist_strategy = fleet.DistributedStrategy()
         dist_strategy.fuse_all_reduce_ops = False
@@ -154,14 +146,20 @@ class TestFuseGemmEpiloguePassReluFP32(DistPassTestBase):
         pass_manager.apply([main_prog], [startup_prog])
         print(pass_manager.names)
 
-        op_type = []
+        op_count = {
+            "fused_gemm_epilogue": 0,
+            "fused_gemm_epilogue_grad": 0,
+            self.act_fwd_name: 0,
+            self.act_bwd_name: 0
+        }
         for op in main_prog.global_block().ops:
-            op_type.append(op.type)
-        print(op_type)
-        self.assertTrue(verify_op_count(op_type, "fused_gemm_epilogue", 3))
-        self.assertTrue(verify_op_count(op_type, "fused_gemm_epilogue_grad", 3))
-        self.assertTrue(verify_op_count(op_type, self.act_fwd_name, 1))
-        self.assertTrue(verify_op_count(op_type, self.act_bwd_name, 2))
+            if op.type in op_count:
+                op_count[op.type] = op_count[op.type] + 1
+
+        self.assertTrue(op_count["fused_gemm_epilogue"], 3)
+        self.assertTrue(op_count["fused_gemm_epilogue_grad"], 3)
+        self.assertTrue(op_count[self.act_fwd_name], 1)
+        self.assertTrue(op_count[self.act_bwd_name], 2)
 
     def test_fuse_gemm_epilogue(self):
         self.check_main()
@@ -174,9 +172,9 @@ class TestFuseGemmEpiloguePassReluFP16(TestFuseGemmEpiloguePassReluFP32):
         self.activation = nn.ReLU
         self.act_fwd_name = 'relu'
         self.act_bwd_name = 'relu_grad'
-        self.batch = 64
+        self.batch = 32
         self.seqlen = 128
-        self.hidden = 768
+        self.hidden = 128
         self.precision = 'AMP'  # FP32 or AMP
 
 
@@ -187,9 +185,9 @@ class TestFuseGemmEpiloguePassGeluFP32(TestFuseGemmEpiloguePassReluFP32):
         self.activation = nn.GELU
         self.act_fwd_name = 'gelu'
         self.act_bwd_name = 'gelu_grad'
-        self.batch = 64
+        self.batch = 32
         self.seqlen = 128
-        self.hidden = 768
+        self.hidden = 128
         self.precision = 'FP32'  # FP32 or AMP
 
 
@@ -200,9 +198,9 @@ class TestFuseGemmEpiloguePassGeluFP16(TestFuseGemmEpiloguePassReluFP32):
         self.activation = nn.GELU
         self.act_fwd_name = 'gelu'
         self.act_bwd_name = 'gelu_grad'
-        self.batch = 64
+        self.batch = 32
         self.seqlen = 128
-        self.hidden = 768
+        self.hidden = 128
         self.precision = 'AMP'  # FP32 or AMP
 
 
