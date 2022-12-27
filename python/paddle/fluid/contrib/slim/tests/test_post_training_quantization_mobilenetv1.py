@@ -149,6 +149,9 @@ class TestPostTrainingQuantization(unittest.TestCase):
             os.system(cmd)
 
         self.batch_size = 1 if os.environ.get('DATASET') == 'full' else 50
+        self.sample_iterations = (
+            50 if os.environ.get('DATASET') == 'full' else 2
+        )
         self.infer_iterations = (
             50000 if os.environ.get('DATASET') == 'full' else 2
         )
@@ -323,6 +326,7 @@ class TestPostTrainingQuantization(unittest.TestCase):
     ):
         infer_iterations = self.infer_iterations
         batch_size = self.batch_size
+        sample_iterations = self.sample_iterations
 
         model_cache_folder = self.download_data(data_urls, data_md5s, model)
 
@@ -400,7 +404,6 @@ class TestPostTrainingKLForMobilenetv1(TestPostTrainingQuantization):
         is_use_cache_file = False
         is_optimize_model = True
         diff_threshold = 0.025
-        batch_nums = 3
         self.run_test(
             model,
             algo,
