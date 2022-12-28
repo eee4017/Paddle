@@ -60,6 +60,8 @@ TRT_DT FluidDataType2TRT(FluidDT type) {
       return TRT_DT::kINT32;
     case FluidDT::VarType_Type_FP16:
       return TRT_DT::kHALF;
+    case FluidDT::VarType_Type_BOOL:
+      return TRT_DT::kBOOL;
     default:
       return TRT_DT::kINT32;
   }
@@ -280,9 +282,10 @@ class TensorRTEngine {
   // name.
   void DeclareOutput(const nvinfer1::ILayer* layer,
                      int offset,
-                     const std::string& name);
+                     const std::string& name,
+                     nvinfer1::DataType dtype);
   // Set the itensor_map_[name] as the network's output, and set its name.
-  void DeclareOutput(const std::string& name);
+  void DeclareOutput(const std::string& name, nvinfer1::DataType dtype);
   void ClearTensorMap() { itensor_map_.clear(); }
 
   void DeleteITensor(const std::string& name, nvinfer1::ITensor* tensor);

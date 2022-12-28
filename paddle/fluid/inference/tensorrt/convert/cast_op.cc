@@ -58,7 +58,6 @@ class CastOpConverter : public OpConverter {
         break;
     }
     layer->setOutputType(0, trt_out_dtype);
-    layer->getOutput(0)->setType(trt_out_dtype);
 
     auto output_name = op_desc.Output("Out")[0];
     RreplenishLayerAndOutput(layer, "cast", {output_name}, test_mode);

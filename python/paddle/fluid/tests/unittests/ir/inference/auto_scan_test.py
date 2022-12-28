@@ -17,6 +17,7 @@ import unittest
 import abc
 import os
 import enum
+import inspect
 import time
 import tempfile
 import logging
@@ -186,12 +187,19 @@ class AutoScanTest(unittest.TestCase):
         ops = []
         for i in range(len(ops_config)):
             op_config = ops_config[i]
+            ops_output_dtype = op_config.get(
+                'op_outputs_dtype',
+                inspect.signature(OpConfig.__init__)
+                .parameters['outputs_dtype']
+                .default,
+            )
             ops.append(
                 OpConfig(
                     type=op_config['op_type'],
                     inputs=op_config['op_inputs'],
                     outputs=op_config['op_outputs'],
                     attrs=op_config['op_attrs'],
+                    outputs_dtype=ops_output_dtype,
                 )
             )
         return ops
