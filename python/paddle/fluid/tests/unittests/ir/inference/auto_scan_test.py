@@ -18,6 +18,7 @@ import abc
 import os
 import enum
 import time
+import tempfile
 import logging
 import shutil
 import paddle
@@ -81,15 +82,18 @@ SkipReasons = IgnoreReasons
 
 
 class AutoScanTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.cache_dir = os.path.join(self.temp_dir.name, str(self.__module__))
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
     def __init__(self, *args, **kwargs):
         np.random.seed(1024)
         paddle.enable_static()
         super(AutoScanTest, self).__init__(*args, **kwargs)
         self.ignore_cases = []
-        abs_dir = os.path.abspath(os.path.dirname(__file__))
-        self.cache_dir = os.path.join(
-            abs_dir, str(self.__module__) + '_cache_dir'
-        )
         self.available_passes_in_framework = set()
         self.num_ran_programs = 0
         self.num_invalid_programs = 0
