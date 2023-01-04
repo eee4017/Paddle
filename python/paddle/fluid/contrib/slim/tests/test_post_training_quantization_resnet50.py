@@ -13,15 +13,37 @@
 # limitations under the License.
 
 import sys
+import time
 import unittest
-from test_post_training_quantization_mobilenetv1 import TestPostTrainingQuantization
+from test_post_training_quantization_mobilenetv1 import (
+    TestPostTrainingQuantization,
+)
 import paddle
 
 paddle.enable_static()
 
 
 class TestPostTrainingForResnet50(TestPostTrainingQuantization):
+    def run_batch_period_accuracy(
+        self, exe, infer_program, image, label, feed_dict, fetch_targets
+    ):
+        t1 = time.perf_counter()
+        _, acc1, _ = exe.run(
+            infer_program,
+            feed={feed_dict[0]: image, feed_dict[1]: label},
+            fetch_list=fetch_targets,
+        )
+        t2 = time.perf_counter()
+        period = t2 - t1
+        return period, acc1
 
+    def set_model_config(self):
+        self.model_filename = None
+        self.params_filename = None
+        self.model_path = "model"
+
+
+class TestPostTrainingForResnet50FakeQDQ(TestPostTrainingForResnet50):
     def test_post_training_resnet50(self):
         model = "ResNet-50"
         algo = "min_max"
@@ -35,13 +57,21 @@ class TestPostTrainingForResnet50(TestPostTrainingQuantization):
         is_use_cache_file = False
         is_optimize_model = False
         diff_threshold = 0.025
-        self.run_test(model, algo, round_type, data_urls, data_md5s,
-                      quantizable_op_type, is_full_quantize, is_use_cache_file,
-                      is_optimize_model, diff_threshold)
+        self.run_test(
+            model,
+            algo,
+            round_type,
+            data_urls,
+            data_md5s,
+            quantizable_op_type,
+            is_full_quantize,
+            is_use_cache_file,
+            is_optimize_model,
+            diff_threshold,
+        )
 
 
-class TestPostTrainingForResnet50ONNXFormat(TestPostTrainingQuantization):
-
+class TestPostTrainingForResnet50ONNXFormat(TestPostTrainingForResnet50):
     def test_post_training_resnet50(self):
         model = "ResNet-50"
         algo = "min_max"
@@ -56,17 +86,19 @@ class TestPostTrainingForResnet50ONNXFormat(TestPostTrainingQuantization):
         is_optimize_model = False
         diff_threshold = 0.025
         onnx_format = True
-        self.run_test(model,
-                      algo,
-                      round_type,
-                      data_urls,
-                      data_md5s,
-                      quantizable_op_type,
-                      is_full_quantize,
-                      is_use_cache_file,
-                      is_optimize_model,
-                      diff_threshold,
-                      onnx_format=onnx_format)
+        self.run_test(
+            model,
+            algo,
+            round_type,
+            data_urls,
+            data_md5s,
+            quantizable_op_type,
+            is_full_quantize,
+            is_use_cache_file,
+            is_optimize_model,
+            diff_threshold,
+            onnx_format=onnx_format,
+        )
 
 
 if __name__ == '__main__':

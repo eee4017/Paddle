@@ -112,7 +112,11 @@ def val(data_dir=DATA_DIR):
 
 
 class TestPostTrainingQuantization(unittest.TestCase):
+    def set_model_config(self):
+        pass
+
     def setUp(self):
+        self.set_model_config()
         self.int8_download = 'int8/download'
         self.cache_folder = os.path.expanduser(
             '~/.cache/paddle/dataset/' + self.int8_download
@@ -204,6 +208,23 @@ class TestPostTrainingQuantization(unittest.TestCase):
     def download_model(self):
         pass
 
+    def run_batch_period_accuracy(
+        self, exe, infer_program, image, label, feed_dict, fetch_targets
+    ):
+        t1 = time.perf_counter()
+        pred = exe.run(
+            infer_program,
+            feed={feed_dict[0]: image},
+            fetch_list=fetch_targets,
+        )
+        t2 = time.perf_counter()
+        period = t2 - t1
+        pred = np.array(pred[0])
+        sort_array = pred.argsort(axis=1)
+        top_1_pred = sort_array[:, -1:][:, ::-1]
+        top_1 = np.mean(label == top_1_pred)
+        return period, top_1
+
     def run_program(self, model_path, batch_size, infer_iterations):
         image_shape = [3, 224, 224]
         place = fluid.CPUPlace()
@@ -215,8 +236,8 @@ class TestPostTrainingQuantization(unittest.TestCase):
         ] = fluid.io.load_inference_model(
             model_path,
             exe,
-            model_filename="inference.pdmodel",
-            params_filename="inference.pdiparams",
+            model_filename=self.model_filename,
+            params_filename=self.params_filename,
         )
         val_reader = paddle.batch(val(), batch_size)
         iterations = infer_iterations
@@ -231,21 +252,10 @@ class TestPostTrainingQuantization(unittest.TestCase):
             label = np.array([x[1] for x in data]).astype("int64")
             label = label.reshape([-1, 1])
 
-            t1 = time.time()
-            pred = exe.run(
-                infer_program,
-                feed={feed_dict[0]: image},
-                fetch_list=fetch_targets,
+            period, top_1 = self.run_batch_period_accuracy(
+                exe, infer_program, image, label, feed_dict, fetch_targets
             )
-            t2 = time.time()
-            period = t2 - t1
             periods.append(period)
-
-            pred = np.array(pred[0])
-            sort_array = pred.argsort(axis=1)
-            top_1_pred = sort_array[:, -1:][:, ::-1]
-            top_1 = np.mean(label == top_1_pred)
-
             test_info.append(np.mean(top_1) * len(data))
             cnt += len(data)
 
@@ -290,8 +300,8 @@ class TestPostTrainingQuantization(unittest.TestCase):
             executor=exe,
             sample_generator=val_reader,
             model_dir=model_path,
-            model_filename="inference.pdmodel",
-            params_filename="inference.pdiparams",
+            model_filename=self.model_filename,
+            params_filename=self.params_filename,
             batch_size=batch_size,
             batch_nums=batch_nums,
             algo=algo,
@@ -305,8 +315,8 @@ class TestPostTrainingQuantization(unittest.TestCase):
         ptq.quantize()
         ptq.save_quantized_model(
             self.int8_model,
-            model_filename="inference.pdmodel",
-            params_filename="inference.pdiparams",
+            model_filename=self.model_filename,
+            params_filename=self.params_filename,
         )
 
     def run_test(
@@ -336,7 +346,7 @@ class TestPostTrainingQuantization(unittest.TestCase):
             )
         )
         (fp32_throughput, fp32_latency, fp32_acc1) = self.run_program(
-            os.path.join(model_cache_folder, "MobileNetV1_infer"),
+            os.path.join(model_cache_folder, self.model_path),
             batch_size,
             infer_iterations,
         )
@@ -347,7 +357,7 @@ class TestPostTrainingQuantization(unittest.TestCase):
             )
         )
         self.generate_quantized_model(
-            os.path.join(model_cache_folder, "MobileNetV1_infer"),
+            os.path.join(model_cache_folder, self.model_path),
             quantizable_op_type,
             batch_size,
             algo,
@@ -385,7 +395,14 @@ class TestPostTrainingQuantization(unittest.TestCase):
         self.assertLess(delta_value, diff_threshold)
 
 
-class TestPostTrainingKLForMobilenetv1(TestPostTrainingQuantization):
+class TestPostTrainingForMobilenetv1(TestPostTrainingQuantization):
+    def set_model_config(self):
+        self.model_filename = "inference.pdmodel"
+        self.params_filename = "inference.pdiparams"
+        self.model_path = "MobileNetV1_infer"
+
+
+class TestPostTrainingKLForMobilenetv1(TestPostTrainingForMobilenetv1):
     def test_post_training_kl_mobilenetv1(self):
         model = "MobileNet-V1"
         algo = "KL"
@@ -418,7 +435,7 @@ class TestPostTrainingKLForMobilenetv1(TestPostTrainingQuantization):
         )
 
 
-class TestPostTrainingavgForMobilenetv1(TestPostTrainingQuantization):
+class TestPostTrainingavgForMobilenetv1(TestPostTrainingForMobilenetv1):
     def test_post_training_avg_mobilenetv1(self):
         model = "MobileNet-V1"
         algo = "avg"
@@ -450,7 +467,7 @@ class TestPostTrainingavgForMobilenetv1(TestPostTrainingQuantization):
         )
 
 
-class TestPostTraininghistForMobilenetv1(TestPostTrainingQuantization):
+class TestPostTraininghistForMobilenetv1(TestPostTrainingForMobilenetv1):
     def test_post_training_hist_mobilenetv1(self):
         model = "MobileNet-V1"
         algo = "hist"
@@ -484,7 +501,7 @@ class TestPostTraininghistForMobilenetv1(TestPostTrainingQuantization):
         )
 
 
-class TestPostTrainingAbsMaxForMobilenetv1(TestPostTrainingQuantization):
+class TestPostTrainingAbsMaxForMobilenetv1(TestPostTrainingForMobilenetv1):
     def test_post_training_abs_max_mobilenetv1(self):
         model = "MobileNet-V1"
         algo = "abs_max"
@@ -516,7 +533,9 @@ class TestPostTrainingAbsMaxForMobilenetv1(TestPostTrainingQuantization):
         )
 
 
-class TestPostTrainingAvgONNXFormatForMobilenetv1(TestPostTrainingQuantization):
+class TestPostTrainingAvgONNXFormatForMobilenetv1(
+    TestPostTrainingForMobilenetv1
+):
     def test_post_training_onnx_format_mobilenetv1(self):
         model = "MobileNet-V1"
         algo = "emd"
