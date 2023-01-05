@@ -246,7 +246,7 @@ class TrtConvertElementwiseTest_one_input(TrtLayerAutoScanTest):
 
     def sample_program_configs(self):
         def generate_input(shape):
-            return np.random.random(shape).astype(np.float32)
+            return (np.random.random(shape) + 0.5).astype(np.float32)
 
         def generate_weight():
             return np.random.randn(32).astype(np.float32)
