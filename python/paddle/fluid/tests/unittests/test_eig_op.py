@@ -273,6 +273,7 @@ class TestEigDyGraph(unittest.TestCase):
             str(np.abs(expect_vec)) + '\n' + 'But got: ' +
             str(np.abs(fetch_vec.numpy())))
 
+    @unittest.skip(reason="numpy results (version < 1.24) are sometimes wrong.")
     def test_check_grad(self):
         test_shape = [3, 3]
         test_type = 'float64'
