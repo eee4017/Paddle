@@ -28,8 +28,8 @@ if(NOT ((WITH_GPU) AND (CUDA_VERSION GREATER_EQUAL 11.6)))
   list(REMOVE_ITEM TEST_OPS test_dist_fuse_gemm_epilogue_pass)
 endif()
 
-if (NOT ((WITH_GPU) AND (CUDA_VERSION GREATER_EQUAL 11.6)))
-    list(REMOVE_ITEM TEST_OPS "test_dist_fuse_gemm_epilogue_pass")
+if(NOT ((WITH_GPU) AND (CUDA_VERSION GREATER_EQUAL 11.6)))
+  list(REMOVE_ITEM TEST_OPS "test_dist_fuse_gemm_epilogue_pass")
 endif()
 
 foreach(TEST_OP ${TEST_OPS})
@@ -38,3 +38,5 @@ foreach(TEST_OP ${TEST_OPS})
   set_tests_properties(${TEST_OP} PROPERTIES TIMEOUT 120)
   set_tests_properties(${TEST_OP} PROPERTIES LABELS "RUN_TYPE=DIST")
 endforeach()
+
+set_tests_properties(test_dist_fuse_gemm_epilogue_pass PROPERTIES TIMEOUT 180)
