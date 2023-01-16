@@ -245,11 +245,17 @@ class TrtConvertElementwiseTest_one_input(TrtLayerAutoScanTest):
         return True
 
     def sample_program_configs(self):
-        def generate_input(shape):
-            return (np.random.random(shape) + 0.5).astype(np.float32)
+        def generate_input(shape, is_pow=False):
+            np_data = np.random.random(shape).astype(np.float32)
+            if is_pow:
+                return np_data + 0.5
+            return np_data
 
-        def generate_weight():
-            return np.random.randn(32).astype(np.float32)
+        def generate_weight(is_pow=False):
+            np_data = np.random.random(32).astype(np.float32)
+            if is_pow:
+                return np_data.round(1)
+            return np_data
 
         for batch in [1, 4]:
             for shape in [
@@ -267,6 +273,7 @@ class TrtConvertElementwiseTest_one_input(TrtLayerAutoScanTest):
                     "elementwise_min",
                     "elementwise_max",
                 ]:
+                    is_pow = op_type == "elementwise_pow"
                     for axis in [-1 if len(shape) == 1 else 1]:
                         self.dims = len(shape)
                         dics = [{"axis": axis}]
@@ -287,12 +294,16 @@ class TrtConvertElementwiseTest_one_input(TrtLayerAutoScanTest):
                             ops=ops,
                             weights={
                                 "weight": TensorConfig(
-                                    data_gen=partial(generate_weight)
+                                    data_gen=partial(
+                                        generate_weight, is_pow=is_pow
+                                    )
                                 )
                             },
                             inputs={
                                 "input_data": TensorConfig(
-                                    data_gen=partial(generate_input, shape)
+                                    data_gen=partial(
+                                        generate_input, shape, is_pow=is_pow
+                                    )
                                 ),
                             },
                             outputs=["output_data"],
