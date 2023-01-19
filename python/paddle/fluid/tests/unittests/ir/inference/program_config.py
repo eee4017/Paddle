@@ -46,8 +46,8 @@ class TensorConfig:
         if data_gen is not None:
             self.data_gen = data_gen
             self.data = data_gen()
-            self.dtype = data_gen().dtype
-            self.shape = data_gen().shape
+            self.dtype = self.data.dtype
+            self.shape = self.data.shape
         else:
             assert shape is not None, "While data_gen is not defined, shape must not be None"
             self.data = np.random.normal(0.0, 1.0, shape).astype(np.float32)
