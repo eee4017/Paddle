@@ -90,10 +90,11 @@ class TrtConvertMatmulTest_dynamic(TrtLayerAutoScanTest):
 
         # The output has little diff between gpu and trt in CI-Windows-Inference
         tol_fp32 = 1e-5
-        tol_half = 1e-3
+        # The half threshold is set 4e-3 because matmul with large size has larger difference
+        tol_half = 4e-3
         if os.name == 'nt':
             tol_fp32 = 1e-3
-            tol_half = 1e-3
+            tol_half = 4e-3
         # for dynamic_shape
         generate_dynamic_shape(attrs)
         self.trt_param.precision = paddle_infer.PrecisionType.Float32
@@ -176,10 +177,10 @@ class TrtConvertMatmulTest_dynamic2(TrtLayerAutoScanTest):
         ]
         # The output has little diff between gpu and trt in CI-Windows-Inference
         tol_fp32 = 1e-5
-        tol_half = 1e-3
+        tol_half = 4e-3
         if os.name == 'nt':
             tol_fp32 = 1e-3
-            tol_half = 1e-3
+            tol_half = 4e-3
         # for dynamic_shape
         generate_dynamic_shape(attrs)
         self.trt_param.precision = paddle_infer.PrecisionType.Float32
@@ -314,7 +315,7 @@ class TrtConvertMatmulTest_dynamic3(TrtLayerAutoScanTest):
         self.trt_param.precision = paddle_infer.PrecisionType.Float32
         yield self.create_inference_config(), (1, 3), (1e-5, 1e-5)
         self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), (1e-3, 1e-3)
+        yield self.create_inference_config(), (1, 3), (4e-3, 4e-3)
 
     def add_skip_trt_case(self):
         pass
