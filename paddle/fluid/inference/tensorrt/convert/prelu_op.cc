@@ -40,24 +40,54 @@ class PReluOpConverter : public OpConverter {
       data_format =
           PADDLE_GET_CONST(std::string, op_desc.GetAttr("data_format"));
     }
+    bool trt_nhwc_convert =
+        op_desc.HasAttr("trt_nhwc_convert") &&
+        PADDLE_GET_CONST(bool, op_desc.GetAttr("trt_nhwc_convert"));
     auto* alpha_var = scope.FindVar(op_desc.Input("Alpha")[0]);
     auto* alpha_tensor = alpha_var->GetMutable<framework::LoDTensor>();
-
-    auto alpha_weight =
-        engine_->GetFp32TrtWeight(op_desc.Input("Alpha")[0], *alpha_tensor);
-
     platform::CPUPlace cpu_place;
+    float* alpha_data = alpha_tensor->mutable_data<float>(cpu_place);
+    auto alpha_tensor_dim = alpha_tensor->dims();
+
+    // Alpha has 1 (all) or 4 (channel, element) dimensions.
+    // We only transpose alpha when the shape of alpha is 4.
+    if (trt_nhwc_convert && alpha_tensor_dim.size() == 4) {
+      // Convert alpha from NHWC to NCHW
+      VLOG(4) << "Convert alpha from NHWC to NCHW";
+      int N = alpha_tensor_dim[0];
+      int H = alpha_tensor_dim[1];
+      int W = alpha_tensor_dim[2];
+      int C = alpha_tensor_dim[3];
+      std::vector<float> alpha_data_copy(alpha_data,
+                                         alpha_data + alpha_tensor->numel());
+      for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < C; ++j) {
+          for (int k = 0; k < H; ++k) {
+            for (int l = 0; l < W; ++l) {
+              alpha_data[i * C * H * W + j * H * W + k * W + l] =
+                  alpha_data_copy[i * H * W * C + k * W * C + l * C + j];
+            }
+          }
+        }
+      }
+      framework::DDim nchw_dim(alpha_tensor->dims());
+      nchw_dim[1] = C;
+      nchw_dim[2] = H;
+      nchw_dim[3] = W;
+      alpha_tensor->Resize(nchw_dim);
+      data_format = "NCHW";
+    }
 
     nvinfer1::ILayer* layer = nullptr;
     if (engine_->with_dynamic_shape()) {
       plugin::PReluPluginDynamic* plugin = new plugin::PReluPluginDynamic(
-          static_cast<const float*>(alpha_weight.get().values),
-          alpha_tensor->numel(),
-          mode,
-          data_format);
+          alpha_data, alpha_tensor->numel(), mode, data_format);
       layer = engine_->AddDynamicPlugin(&input, input_num, plugin);
     } else {
 #if IS_TRT_VERSION_GE(7000)
+      auto alpha_weight =
+          engine_->GetFp32TrtWeight(op_desc.Input("Alpha")[0], *alpha_tensor);
+
       nvinfer1::Dims dims;
       dims.nbDims = 0;
       // jump batch dim

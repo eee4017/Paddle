@@ -177,7 +177,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       if (desc.HasAttr("data_format")) {
         std::string data_format =
             PADDLE_GET_CONST(std::string, desc.GetAttr("data_format"));
-        if (data_format == "NHWC" || data_format == "NDHWC") {
+        if (data_format == "NDHWC") {
           return false;
         }
       }

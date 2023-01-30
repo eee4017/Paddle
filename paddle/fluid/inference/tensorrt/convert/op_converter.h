@@ -14,6 +14,7 @@ limitations under the License. */
 
 #pragma once
 
+#include <cstdlib>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -281,6 +282,183 @@ class OpConverter {
     }
   }
 
+  // Check a subgraph needs NHWC data format conversion or not.
+  // Set environment variable FLAGS_disable_trt_nhwc_convert to True can disable
+  // this functionality.
+  bool IsSubgraphNHWCConvert(framework::BlockDesc* block_desc,
+                             const std::vector<std::string>& inputs,
+                             const std::unordered_set<std::string>& parameters,
+                             const std::vector<std::string>& outputs,
+                             TensorRTEngine* engine) {
+    const auto* disable_nhwc_convert_env =
+        std::getenv("FLAGS_disable_trt_nhwc_convert");
+    bool disable_nhwc_convert = false;
+    if (disable_nhwc_convert_env != nullptr) {
+      if (std::string(disable_nhwc_convert_env) != "True") {
+        LOG(WARNING) << "If you want to disable Paddle-TRT NHWC converter, "
+                        "please set environment variable "
+                        "FLAGS_disable_trt_nhwc_convert to True";
+      } else {
+        disable_nhwc_convert = true;
+      }
+    }
+    bool need_nhwc_convert = false;
+    if (!disable_nhwc_convert) {
+      VLOG(4)
+          << "Check whether the subgraph needs NHWC data format conversion.";
+      bool has_nchw = false;
+      for (size_t i = 0; i < block_desc->OpSize(); ++i) {
+        const auto* op_desc = block_desc->Op(i);
+        std::string op_name = op_desc->Type();
+        if (op_desc->HasAttr("data_format")) {
+          std::string data_format =
+              PADDLE_GET_CONST(std::string, op_desc->GetAttr("data_format"));
+          if (data_format == "NCHW") {
+            has_nchw = true;
+            if (need_nhwc_convert) {
+              VLOG(4) << "The TRT subgraph has both NCHW and NHWC nodes.";
+              need_nhwc_convert = false;
+              break;
+            }
+          } else if (data_format == "NHWC") {
+            if (has_nchw) {
+              VLOG(4) << "The TRT subgraph has both NCHW and NHWC nodes.";
+              need_nhwc_convert = false;
+              break;
+            }
+            if (!need_nhwc_convert) {
+              need_nhwc_convert = true;
+            }
+          }
+        }
+      }
+      for (auto& input : inputs) {
+        if (parameters.count(input)) continue;
+        auto* original_input = engine->GetITensor(input);
+        auto original_input_dim = original_input->getDimensions();
+        if (engine->with_dynamic_shape()) {
+          if (original_input_dim.nbDims != 4) {
+            LOG(WARNING) << "[NHWC Converter] The input " << input
+                         << " should have four dimensions.";
+            need_nhwc_convert = false;
+            break;
+          }
+        } else {
+          if (original_input_dim.nbDims != 3) {
+            VLOG(4) << "[NHWC Converter] The input should have four dimensions "
+                       "(NHWC)";
+            need_nhwc_convert = false;
+            break;
+          }
+        }
+      }
+      if (need_nhwc_convert) {
+        LOG(INFO) << "TensorRT NHWC data format convert is enabled.";
+      }
+    }
+    return need_nhwc_convert;
+  }
+
+  // NHWC data format convert before ConvertBlock.
+  // 1. Modify the data format from NHWC to NCHW
+  // 2. Add shuffle layers to the inputs of subgraph
+  // 3. Set the input tensor name to be name of input + ".to_nchw"
+  // 4. Replace the input variable names in subgraph
+  // 5. Replace the output variable names in subgraph
+  void NHWCUpdateBeforeConvert(
+      bool need_nhwc_convert,
+      framework::BlockDesc* block_desc,
+      const std::vector<std::string>& inputs,
+      const std::unordered_set<std::string>& parameters,
+      const std::vector<std::string>& outputs,
+      TensorRTEngine* engine) {
+    if (!need_nhwc_convert) return;
+    for (size_t i = 0; i < block_desc->OpSize(); ++i) {
+      auto* op_desc = block_desc->Op(i);
+      if (op_desc->HasAttr("data_format")) {
+        if (PADDLE_GET_CONST(std::string, op_desc->GetAttr("data_format")) ==
+            "NHWC") {
+          framework::Attribute nchw_attr = std::string("NCHW");
+          op_desc->SetAttr("data_format", nchw_attr);
+          // The weight (alpha) in prelu op needs to be transposed.
+          // Set attribute trt_nhwc_convert to be true to tell prelu_op do
+          // transpose.
+          if (op_desc->Type() == "prelu") {
+            framework::Attribute trt_nhwc_convert = static_cast<bool>(true);
+            op_desc->SetAttr("trt_nhwc_convert", trt_nhwc_convert);
+          }
+        }
+      }
+    }
+    for (auto& input : inputs) {
+      if (parameters.count(input)) continue;
+      VLOG(4) << "Convert variable " << input << " from NHWC to NCHW";
+      auto* original_input = engine->GetITensor(input);
+      auto* nhwc_to_nchw_layer =
+          TRT_ENGINE_ADD_LAYER(engine, Shuffle, *original_input);
+      if (engine->with_dynamic_shape()) {
+        nhwc_to_nchw_layer->setSecondTranspose({0, 3, 1, 2});
+      } else {
+        nhwc_to_nchw_layer->setSecondTranspose({2, 0, 1});
+      }
+      std::string nchw_input = input + ".to_nchw";
+      VLOG(4) << "Replace the variable name " << input << " with "
+              << nchw_input;
+      engine->SetITensor(nchw_input, nhwc_to_nchw_layer->getOutput(0));
+      block_desc->RenameVar(input, nchw_input);
+    }
+    for (auto& output : outputs) {
+      auto* var = block_desc->FindVar(output);
+      if (var->GetShape().size() < 3) continue;
+      VLOG(4) << "Convert variable " << output << " from NCHW to NHWC";
+      std::string nchw_output = output + ".from_nchw";
+      block_desc->RenameVar(output, nchw_output);
+    }
+  }
+
+  // NHWC data format convert after ConvertBlock.
+  // 1. Add shuffle layers to the outputs of subgraph
+  // 2. Set the output tensor names to be name of output + ".from_nchw"
+  // 3. Restore the inputs' and outputs' name in the subgraph
+  void NHWCUpdateAfterConvert(bool need_nhwc_convert,
+                              framework::BlockDesc* block_desc,
+                              const std::vector<std::string>& inputs,
+                              const std::unordered_set<std::string>& parameters,
+                              const std::vector<std::string>& outputs,
+                              TensorRTEngine* engine) {
+    if (!need_nhwc_convert) return;
+    for (auto& input : inputs) {
+      if (parameters.count(input)) continue;
+      block_desc->RenameVar(input + ".to_nchw", input);
+    }
+    for (auto& output : outputs) {
+      std::string nchw_output = output + ".from_nchw";
+      auto* var = block_desc->FindVar(nchw_output);
+      if (var == nullptr) continue;
+      auto* original_output = engine->GetITensor(nchw_output);
+      auto original_dim = original_output->getDimensions();
+      auto* nchw_to_nhwc_layer =
+          TRT_ENGINE_ADD_LAYER(engine, Shuffle, *original_output);
+      if (engine->with_dynamic_shape()) {
+        PADDLE_ENFORCE_EQ(
+            original_dim.nbDims,
+            4,
+            platform::errors::InvalidArgument(
+                "Dynamic shape NCHW output tensor should have 4 dimensions"));
+        nchw_to_nhwc_layer->setSecondTranspose({0, 2, 3, 1});
+      } else {
+        PADDLE_ENFORCE_EQ(
+            original_dim.nbDims,
+            3,
+            platform::errors::InvalidArgument(
+                "Static shape NCHW output tensor should have 3 dimensions"));
+        nchw_to_nhwc_layer->setSecondTranspose({1, 2, 0});
+      }
+      engine->SetITensor(output, nchw_to_nhwc_layer->getOutput(0));
+      block_desc->RenameVar(nchw_output, output);
+    }
+  }
+
   // The scope  here should be inited with the parameter vars.
   void ConvertBlockToTRTEngine(
       framework::BlockDesc* block_desc,
@@ -354,8 +532,18 @@ class OpConverter {
                       platform::errors::InvalidArgument(
                           "some trt inputs dynamic shape info not set, "
                           "check the INFO log above for more details."));
+
+    bool need_nhwc_convert =
+        IsSubgraphNHWCConvert(block_desc, inputs, parameters, outputs, engine);
+    NHWCUpdateBeforeConvert(
+        need_nhwc_convert, block_desc, inputs, parameters, outputs, engine);
+
     framework::proto::BlockDesc* block_proto = block_desc->Proto();
     ConvertBlock(*block_proto, parameters, scope, engine);
+
+    NHWCUpdateAfterConvert(
+        need_nhwc_convert, block_desc, inputs, parameters, outputs, engine);
+
     for (auto& output : outputs) {
       auto* var = block_desc->FindVar(output);
       PADDLE_ENFORCE_NOT_NULL(
