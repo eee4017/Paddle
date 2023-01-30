@@ -57,7 +57,7 @@ ConvElementwiseAddFusePass::ConvElementwiseAddFusePass() {
       .AddAttr("dilations")
       .End()
       .AddAttr("data_format")
-      .IsStringIn({"NCHW", "AnyLayout"})
+      .IsStringIn({"NCHW", "NHWC", "AnyLayout"})
       .End();
 
   AddOpCompat(OpCompat("elementwise_add"))
@@ -71,7 +71,7 @@ ConvElementwiseAddFusePass::ConvElementwiseAddFusePass() {
       .IsTensor()
       .End()
       .AddAttr("axis")
-      .IsNumEQ(1)
+      .IsIntIn({1, 3})
       .End();
 }
 
