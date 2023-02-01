@@ -200,7 +200,8 @@ if((WITH_GPU) AND LOCAL_ALL_PLAT)
     "RUN_TYPE=DIST"
     ENVS
     "PADDLE_DIST_UT_PORT=21218;http_proxy=;https_proxy=;PYTHONPATH=../..:${PADDLE_BINARY_DIR}/python"
-  )
+    TIMEOUT
+    500)
   set_tests_properties(test_parallel_dygraph_pipeline_parallel
                        PROPERTIES TIMEOUT "500")
 endif()
