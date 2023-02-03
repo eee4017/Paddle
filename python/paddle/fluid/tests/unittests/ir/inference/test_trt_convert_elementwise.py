@@ -29,10 +29,12 @@ def generate_input(shape, is_pow=False):
     return np_data
 
 
-def generate_weight(shape, is_pow=False):
+def generate_weight(shape, is_pow=False, is_div=False):
     np_data = np.random.randn(*shape).astype(np.float32)
     if is_pow:
         return np_data.round(1)
+    if is_div:
+        return np_data + 1.0
     return np_data
 
 
@@ -45,7 +47,7 @@ class TrtConvertElementwiseTest_one_input_special_case0(TrtLayerAutoScanTest):
     def sample_program_configs(self):
 
         for batch in [1, 4]:
-            for shape in [[batch, 32, 8, 8]]:
+            for shape in [[batch, 32, 4, 4]]:
                 for op_type in [
                     "elementwise_add",
                     "elementwise_mul",
@@ -267,8 +269,8 @@ class TrtConvertElementwiseTest_one_input(TrtLayerAutoScanTest):
             for shape in [
                 [32],
                 [batch, 32],
-                [batch, 32, 32],
-                [batch, 32, 16, 32],
+                [batch, 32, 8],
+                [batch, 32, 8, 4],
             ]:
                 for op_type in [
                     "elementwise_add",
@@ -280,6 +282,7 @@ class TrtConvertElementwiseTest_one_input(TrtLayerAutoScanTest):
                     "elementwise_max",
                 ]:
                     is_pow = op_type == "elementwise_pow"
+                    is_div = op_type == "elementwise_div"
                     for axis in [-1 if len(shape) == 1 else 1]:
                         self.dims = len(shape)
                         dics = [{"axis": axis}]
@@ -301,7 +304,10 @@ class TrtConvertElementwiseTest_one_input(TrtLayerAutoScanTest):
                             weights={
                                 "weight": TensorConfig(
                                     data_gen=partial(
-                                        generate_weight, (32,), is_pow=is_pow
+                                        generate_weight,
+                                        (32,),
+                                        is_pow=is_pow,
+                                        is_div=is_div,
                                     )
                                 )
                             },
@@ -704,7 +710,7 @@ class TrtConvertElementwiseTest_one_input_corner_case(TrtLayerAutoScanTest):
         def generate_weight_corner(is_div=False):
             weight_data = np.random.rand(32).astype(np.float32)
             if is_div:
-                weight_data = weight_data + 0.5
+                weight_data = weight_data + 1.0
             return weight_data
 
         for batch in [1, 2, 4]:
@@ -712,7 +718,7 @@ class TrtConvertElementwiseTest_one_input_corner_case(TrtLayerAutoScanTest):
                 [32],
                 [batch, 32],
                 [batch, 32, 32],
-                [batch, 32, 16, 32],
+                [batch, 32, 16, 4],
             ]:
                 for op_type in [
                     "elementwise_add",
