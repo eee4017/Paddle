@@ -1020,3 +1020,28 @@ PADDLE_DEFINE_EXPORTED_bool(
 PADDLE_DEFINE_EXPORTED_string(jit_engine_type,
                               "Predictor",
                               "Choose default funciton type in JitLayer.");
+
+#ifdef PADDLE_WITH_CUDNN_FRONTEND
+/**
+ * CUDNNv8 related FLAG
+ * Name: enable_cudnn_frontend
+ * Since Version: 2.5.0
+ * Value Range: bool, default=false
+ * Example:
+ * Note: Enable CUDNNv8 Frontend API for CUDNN kernels.
+ */
+PADDLE_DEFINE_EXPORTED_bool(enable_cudnn_frontend, false, "");
+
+/**
+ * CUDNNv8 related FLAG
+ * Name: cudnn_cache_saturation_count
+ * Since Version: 2.5.0
+ * Value Range: int64_t, default=1
+ * Example:
+ * Note: Set saturation count for CUDNNv8 cache. A candidate execution
+ * plan need to be considered as the fastest plan by exhaustive search
+ * N times before it is actually added in the cache. It is useful when
+ * the result of exhaustive search is unstable.
+ */
+PADDLE_DEFINE_EXPORTED_int32(cudnn_cache_saturation_count, 1, "");
+#endif  // PADDLE_WITH_CUDNN_FRONTEND
