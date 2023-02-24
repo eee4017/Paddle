@@ -37,5 +37,4 @@ no_check_set_white_list = [
     'class_center_sample',
     'einsum',
     'rmsprop',
-    'fused_scale_bias_relu_conv_bnstats',
 ]
