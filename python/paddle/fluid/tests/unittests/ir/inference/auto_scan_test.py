@@ -147,8 +147,7 @@ class AutoScanTest(unittest.TestCase):
         for out_name, o_name in zip(
             prog_config.outputs, predictor.get_output_names()
         ):
-            result[out_name] = predictor.get_output_handle(
-                o_name).copy_to_cpu()
+            result[out_name] = predictor.get_output_handle(o_name).copy_to_cpu()
         return result
 
     @abc.abstractmethod
@@ -162,7 +161,7 @@ class AutoScanTest(unittest.TestCase):
         for key, arr in tensor.items():
             self.assertTrue(
                 baseline[key].shape == arr.shape,
-                f"The output shapes are not equal, the baseline shape is {baseline[key].shape}, but got {str(arr.shape)}"
+                f"The output shapes are not equal, the baseline shape is {baseline[key].shape}, but got {str(arr.shape)}",
             )
             diff = abs(baseline[key] - arr)
             np.testing.assert_allclose(
@@ -170,7 +169,7 @@ class AutoScanTest(unittest.TestCase):
                 baseline[key],
                 rtol=rtol,
                 atol=atol,
-                err_msg=f"Output has diff, Maximum absolute error: {np.amax(diff)}"
+                err_msg=f"Output has diff, Maximum absolute error: {np.amax(diff)}",
             )
 
     @abc.abstractmethod
@@ -319,9 +318,7 @@ class MkldnnAutoScanTest(AutoScanTest):
                     self.fail_log(
                         f"predictor_config: {self.inference_config_str(pred_config)}"
                     )
-                    self.fail_log(
-                        f"\033[1;31m ERROR INFO: {e}\033[0m"
-                    )
+                    self.fail_log(f"\033[1;31m ERROR INFO: {e}\033[0m")
                     if not ignore_flag:
                         status = False
                     continue
@@ -538,9 +535,7 @@ class PassAutoScanTest(AutoScanTest):
                     self.fail_log(
                         f"predictor_config: {self.inference_config_str(pred_config)}"
                     )
-                    self.fail_log(
-                        f"\033[1;31m ERROR INFO: {e}\033[0m"
-                    )
+                    self.fail_log(f"\033[1;31m ERROR INFO: {e}\033[0m")
                     if not ignore_flag:
                         status = False
                     continue
@@ -673,10 +668,9 @@ class TrtLayerAutoScanTest(AutoScanTest):
             self.assertEqual(
                 baseline[key].shape,
                 arr.shape,
-                f"The output shapes are not equal, the baseline shape is {baseline[key].shape}, but got {str(arr.shape)}"
+                f"The output shapes are not equal, the baseline shape is {baseline[key].shape}, but got {str(arr.shape)}",
             )
-            np.testing.assert_allclose(
-                arr, baseline[key], rtol=rtol, atol=atol)
+            np.testing.assert_allclose(arr, baseline[key], rtol=rtol, atol=atol)
 
     def assert_op_size(self, trt_engine_num, paddle_op_num):
         last_passed_program = os.path.join(
@@ -838,9 +832,7 @@ class TrtLayerAutoScanTest(AutoScanTest):
                     self.fail_log(
                         f"predictor_config: {self.inference_config_str(pred_config)}"
                     )
-                    self.fail_log(
-                        f"\033[1;31m ERROR INFO: {e}\033[0m"
-                    )
+                    self.fail_log(f"\033[1;31m ERROR INFO: {e}\033[0m")
                     all_passes = False
 
         self.assertTrue(all_passes)
