@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -34,6 +35,9 @@ class TrtConvertGroupNormTest(TrtLayerAutoScanTest):
             return False
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input(attrs: List[Dict[str, Any]], batch):
             if attrs[0]['data_layout'] == 'NCHW':
@@ -47,56 +51,54 @@ class TrtConvertGroupNormTest(TrtLayerAutoScanTest):
         def generate_bias():
             return np.random.randn(32).astype(np.float32)
 
-        for batch in [1, 2, 4]:
-            for group in [1, 4, 32, -1]:
-                for epsilon in [0.0001, 0.0007, -1, 1]:
-                    for data_layout in ['NCHW']:
-                        dics = [
-                            {
-                                "epsilon": epsilon,
-                                "groups": group,
-                                "data_layout": data_layout,
-                            }
-                        ]
-                        ops_config = [
-                            {
-                                "op_type": "group_norm",
-                                "op_inputs": {
-                                    "X": ["input_data"],
-                                    "Scale": ["scale_weight"],
-                                    "Bias": ["bias_weight"],
-                                },
-                                "op_outputs": {
-                                    "Y": ["y_output"],
-                                    "Mean": ["mean_output"],
-                                    "Variance": ["variance_output"],
-                                },
-                                "op_attrs": dics[0],
-                            }
-                        ]
-                        ops = self.generate_op_config(ops_config)
-
-                        program_config = ProgramConfig(
-                            ops=ops,
-                            weights={
-                                "scale_weight": TensorConfig(
-                                    data_gen=partial(generate_scale)
-                                ),
-                                "bias_weight": TensorConfig(
-                                    data_gen=partial(generate_bias)
-                                ),
-                            },
-                            inputs={
-                                "input_data": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input, dics, batch
-                                    )
-                                )
-                            },
-                            outputs=["y_output"],
-                        )
-
-                        yield program_config
+        batch_list = [1, 2, 4]
+        group_list = [1, 4, 32, -1]
+        epsilon_list = [0.0001, 0.0007, -1, 1]
+        data_layout_list = ['NCHW']
+        grid = [batch_list, group_list, epsilon_list, data_layout_list]
+        for batch, group, epsilon, data_layout in itertools.product(*grid):
+            dics = [
+                {
+                    'epsilon': epsilon,
+                    'groups': group,
+                    'data_layout': data_layout,
+                }
+            ]
+            ops_config = [
+                {
+                    'op_type': 'group_norm',
+                    'op_inputs': {
+                        'X': ['input_data'],
+                        'Scale': ['scale_weight'],
+                        'Bias': ['bias_weight'],
+                    },
+                    'op_outputs': {
+                        'Y': ['y_output'],
+                        'Mean': ['mean_output'],
+                        'Variance': ['variance_output'],
+                    },
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'scale_weight': TensorConfig(
+                        data_gen=partial(generate_scale)
+                    ),
+                    'bias_weight': TensorConfig(
+                        data_gen=partial(generate_bias)
+                    ),
+                },
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input(dics, batch)
+                    )
+                },
+                outputs=['y_output'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -122,25 +124,36 @@ class TrtConvertGroupNormTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def add_skip_trt_case(self):
         pass

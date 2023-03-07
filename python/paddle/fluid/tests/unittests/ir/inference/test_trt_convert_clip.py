@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -24,6 +25,9 @@ import unittest
 class TrtConvertClipTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input1(dims, batch, attrs: List[Dict[str, Any]]):
@@ -42,52 +46,50 @@ class TrtConvertClipTest(TrtLayerAutoScanTest):
         def generate_weight2(attrs: List[Dict[str, Any]]):
             return np.array([np.random.uniform(10, 20)]).astype("float32")
 
-        for dims in [1, 2, 3, 4]:
-            for batch in [1, 4]:
-                for op_inputs in [
-                    {"X": ["input_data"]},
-                    {"X": ["input_data"], "Min": ["Min_"], "Max": ["Max_"]},
-                ]:
-                    self.input_num = len(op_inputs)
-                    self.dims = dims
-                    dics = [
-                        {
-                            "min": np.random.uniform(1, 10),
-                            "max": np.random.uniform(10, 20),
-                        },
-                        {"op_inputs": op_inputs},
-                    ]
-                    ops_config = [
-                        {
-                            "op_type": "clip",
-                            "op_inputs": op_inputs,
-                            "op_outputs": {"Out": ["output_data"]},
-                            "op_attrs": dics[0],
-                        }
-                    ]
-                    ops = self.generate_op_config(ops_config)
-
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={
-                            "Min_": TensorConfig(
-                                data_gen=partial(generate_weight1, dics)
-                            ),
-                            "Max_": TensorConfig(
-                                data_gen=partial(generate_weight2, dics)
-                            ),
-                        },
-                        inputs={
-                            "input_data": TensorConfig(
-                                data_gen=partial(
-                                    generate_input1, dims, batch, dics
-                                )
-                            )
-                        },
-                        outputs=["output_data"],
+        dims_list = [1, 2, 3, 4]
+        batch_list = [1, 4]
+        op_inputs_list = [
+            {'X': ['input_data']},
+            {'X': ['input_data'], 'Min': ['Min_'], 'Max': ['Max_']},
+        ]
+        grid = [dims_list, batch_list, op_inputs_list]
+        for dims, batch, op_inputs in itertools.product(*grid):
+            self.input_num = len(op_inputs)
+            self.dims = dims
+            dics = [
+                {
+                    'min': np.random.uniform(1, 10),
+                    'max': np.random.uniform(10, 20),
+                },
+                {'op_inputs': op_inputs},
+            ]
+            ops_config = [
+                {
+                    'op_type': 'clip',
+                    'op_inputs': op_inputs,
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'Min_': TensorConfig(
+                        data_gen=partial(generate_weight1, dics)
+                    ),
+                    'Max_': TensorConfig(
+                        data_gen=partial(generate_weight2, dics)
+                    ),
+                },
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1(dims, batch, dics)
                     )
-
-                    yield program_config
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(self, program_config):
         def generate_dynamic_shape(attrs):
@@ -131,25 +133,36 @@ class TrtConvertClipTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def test(self):
         self.run_test()

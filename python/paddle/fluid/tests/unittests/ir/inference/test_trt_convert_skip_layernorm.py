@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -44,6 +45,9 @@ class TrtConvertSkipLayernormTest(TrtLayerAutoScanTest):
             return False
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]], batch):
             if self.dims == 4:
@@ -67,62 +71,69 @@ class TrtConvertSkipLayernormTest(TrtLayerAutoScanTest):
         def generate_weight2(attrs: List[Dict[str, Any]]):
             return np.random.random([768]).astype(np.float32)
 
-        for dims in [2, 3, 4]:
-            for batch in [1, 2, 4]:
-                for epsilon in [1e-5]:
-                    for begin_norm_axis in [0, 1, 2, -1]:
-                        for enable_int8 in [False, True]:
-                            self.dims = dims
-                            dics = [
-                                {
-                                    "epsilon": epsilon,
-                                    "begin_norm_axis": begin_norm_axis,
-                                    "enable_int8": enable_int8,
-                                },
-                                {},
-                            ]
-                            ops_config = [
-                                {
-                                    "op_type": "skip_layernorm",
-                                    "op_inputs": {
-                                        "X": ["skip_layernorm_inputX_data"],
-                                        "Y": ["skip_layernorm_inputY_data"],
-                                        "Bias": ["Bias"],
-                                        "Scale": ["Scale"],
-                                    },
-                                    "op_outputs": {
-                                        "Out": ["skip_layernorm_out"]
-                                    },
-                                    "op_attrs": dics[0],
-                                }
-                            ]
-                            ops = self.generate_op_config(ops_config)
-                            program_config = ProgramConfig(
-                                ops=ops,
-                                weights={
-                                    "Bias": TensorConfig(
-                                        data_gen=partial(generate_weight1, dics)
-                                    ),
-                                    "Scale": TensorConfig(
-                                        data_gen=partial(generate_weight2, dics)
-                                    ),
-                                },
-                                inputs={
-                                    "skip_layernorm_inputX_data": TensorConfig(
-                                        data_gen=partial(
-                                            generate_input1, dics, batch
-                                        )
-                                    ),
-                                    "skip_layernorm_inputY_data": TensorConfig(
-                                        data_gen=partial(
-                                            generate_input2, dics, batch
-                                        )
-                                    ),
-                                },
-                                outputs=["skip_layernorm_out"],
-                            )
-
-                            yield program_config
+        dims_list = [2, 3, 4]
+        batch_list = [1, 2, 4]
+        epsilon_list = [1e-05]
+        begin_norm_axis_list = [0, 1, 2, -1]
+        enable_int8_list = [False, True]
+        grid = [
+            dims_list,
+            batch_list,
+            epsilon_list,
+            begin_norm_axis_list,
+            enable_int8_list,
+        ]
+        for (
+            dims,
+            batch,
+            epsilon,
+            begin_norm_axis,
+            enable_int8,
+        ) in itertools.product(*grid):
+            self.dims = dims
+            dics = [
+                {
+                    'epsilon': epsilon,
+                    'begin_norm_axis': begin_norm_axis,
+                    'enable_int8': enable_int8,
+                },
+                {},
+            ]
+            ops_config = [
+                {
+                    'op_type': 'skip_layernorm',
+                    'op_inputs': {
+                        'X': ['skip_layernorm_inputX_data'],
+                        'Y': ['skip_layernorm_inputY_data'],
+                        'Bias': ['Bias'],
+                        'Scale': ['Scale'],
+                    },
+                    'op_outputs': {'Out': ['skip_layernorm_out']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'Bias': TensorConfig(
+                        data_gen=partial(generate_weight1, dics)
+                    ),
+                    'Scale': TensorConfig(
+                        data_gen=partial(generate_weight2, dics)
+                    ),
+                },
+                inputs={
+                    'skip_layernorm_inputX_data': TensorConfig(
+                        data_gen=lambda: generate_input1(dics, batch)
+                    ),
+                    'skip_layernorm_inputY_data': TensorConfig(
+                        data_gen=lambda: generate_input2(dics, batch)
+                    ),
+                },
+                outputs=['skip_layernorm_out'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -212,14 +223,20 @@ class TrtConvertSkipLayernormTest(TrtLayerAutoScanTest):
 
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def add_skip_trt_case(self):
         pass

@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -24,6 +25,9 @@ import unittest
 class TrtConvertPreluTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input(batch, dim1, dim2, dim3):
@@ -73,77 +77,62 @@ class TrtConvertPreluTest(TrtLayerAutoScanTest):
                     shape.append(dim3)
                 return np.random.random(size=shape).astype(np.float32)
 
-        for batch in [1, 4]:
-            for dim1 in [0, 3]:
-                for dim2 in [0, 16]:
-                    for dim3 in [0, 32]:
-                        self.dim1 = dim1
-                        self.dim2 = dim2
-                        self.dim3 = dim3
-
-                        if dim1 == 0 and dim2 != 0:
-                            continue
-                        if dim1 == 0 and dim2 == 0 and dim3 != 0:
-                            continue
-
-                        for mode in ["all", "channel", "element"]:
-                            for data_format in ['NCHW', 'NHWC']:
-                                if (
-                                    mode == "channel"
-                                    and dim1 == 0
-                                    and data_format == "NCHW"
-                                ):
-                                    continue
-                                if (
-                                    mode == "channel"
-                                    and dim3 == 0
-                                    and data_format == "NHWC"
-                                ):
-                                    continue
-                                dics = [
-                                    {"mode": mode, "data_format": data_format}
-                                ]
-                                ops_config = [
-                                    {
-                                        "op_type": "prelu",
-                                        "op_inputs": {
-                                            "X": ["input_data"],
-                                            "Alpha": ["alpha_weight"],
-                                        },
-                                        "op_outputs": {"Out": ["output_data"]},
-                                        "op_attrs": dics[0],
-                                    }
-                                ]
-                                ops = self.generate_op_config(ops_config)
-
-                                program_config = ProgramConfig(
-                                    ops=ops,
-                                    weights={
-                                        "alpha_weight": TensorConfig(
-                                            data_gen=partial(
-                                                generate_alpha,
-                                                dics,
-                                                dim1,
-                                                dim2,
-                                                dim3,
-                                            )
-                                        )
-                                    },
-                                    inputs={
-                                        "input_data": TensorConfig(
-                                            data_gen=partial(
-                                                generate_input,
-                                                batch,
-                                                dim1,
-                                                dim2,
-                                                dim3,
-                                            )
-                                        ),
-                                    },
-                                    outputs=["output_data"],
-                                )
-
-                                yield program_config
+        batch_list = [1, 4]
+        dim1_list = [0, 3]
+        dim2_list = [0, 16]
+        dim3_list = [0, 32]
+        mode_list = ['all', 'channel', 'element']
+        data_format_list = ['NCHW', 'NHWC']
+        grid = [
+            batch_list,
+            dim1_list,
+            dim2_list,
+            dim3_list,
+            mode_list,
+            data_format_list,
+        ]
+        for batch, dim1, dim2, dim3, mode, data_format in itertools.product(
+            *grid
+        ):
+            self.dim1 = dim1
+            self.dim2 = dim2
+            self.dim3 = dim3
+            if dim1 == 0 and dim2 != 0:
+                continue
+            if dim1 == 0 and dim2 == 0 and (dim3 != 0):
+                continue
+            if mode == 'channel' and dim1 == 0 and (data_format == 'NCHW'):
+                continue
+            if mode == 'channel' and dim3 == 0 and (data_format == 'NHWC'):
+                continue
+            dics = [{'mode': mode, 'data_format': data_format}]
+            ops_config = [
+                {
+                    'op_type': 'prelu',
+                    'op_inputs': {
+                        'X': ['input_data'],
+                        'Alpha': ['alpha_weight'],
+                    },
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'alpha_weight': TensorConfig(
+                        data_gen=partial(generate_alpha, dics, dim1, dim2, dim3)
+                    )
+                },
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input(batch, dim1, dim2, dim3)
+                    )
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -212,25 +201,36 @@ class TrtConvertPreluTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def add_skip_trt_case(self):
         ver = paddle_infer.get_trt_compile_version()

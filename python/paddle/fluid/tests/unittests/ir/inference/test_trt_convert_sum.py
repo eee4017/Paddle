@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -24,6 +25,9 @@ import unittest
 class TrtConvertSumTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input1(batch):
@@ -56,36 +60,37 @@ class TrtConvertSumTest(TrtLayerAutoScanTest):
             elif self.dims == 1:
                 return np.ones([24]).astype(np.float32)
 
-        for dims in [1, 2, 3, 4]:
-            for batch in [1, 4]:
-                self.dims = dims
-                ops_config = [
-                    {
-                        "op_type": "sum",
-                        "op_inputs": {"X": ["input1", "input2", "input3"]},
-                        "op_outputs": {"Out": ["output"]},
-                        "op_attrs": {},
-                    }
-                ]
-                ops = self.generate_op_config(ops_config)
-                program_config = ProgramConfig(
-                    ops=ops,
-                    weights={},
-                    inputs={
-                        "input1": TensorConfig(
-                            data_gen=partial(generate_input1, batch)
-                        ),
-                        "input2": TensorConfig(
-                            data_gen=partial(generate_input2, batch)
-                        ),
-                        "input3": TensorConfig(
-                            data_gen=partial(generate_input3, batch)
-                        ),
-                    },
-                    outputs=["output"],
-                )
-
-                yield program_config
+        dims_list = [1, 2, 3, 4]
+        batch_list = [1, 4]
+        grid = [dims_list, batch_list]
+        for dims, batch in itertools.product(*grid):
+            self.dims = dims
+            ops_config = [
+                {
+                    'op_type': 'sum',
+                    'op_inputs': {'X': ['input1', 'input2', 'input3']},
+                    'op_outputs': {'Out': ['output']},
+                    'op_attrs': {},
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input1': TensorConfig(
+                        data_gen=lambda: generate_input1(batch)
+                    ),
+                    'input2': TensorConfig(
+                        data_gen=lambda: generate_input2(batch)
+                    ),
+                    'input3': TensorConfig(
+                        data_gen=lambda: generate_input3(batch)
+                    ),
+                },
+                outputs=['output'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -168,21 +173,36 @@ class TrtConvertSumTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(True), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(True), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(True),
+                1e-03,
+            )
 
     def test(self):
         self.run_test()
@@ -192,6 +212,9 @@ class TrtConvertSumTest(TrtLayerAutoScanTest):
 class TrtConvertSumTest1(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input1(batch):
@@ -204,30 +227,31 @@ class TrtConvertSumTest1(TrtLayerAutoScanTest):
             elif self.dims == 1:
                 return np.ones([24]).astype(np.float32)
 
-        for dims in [1, 2, 3, 4]:
-            for batch in [1, 4]:
-                self.dims = dims
-                ops_config = [
-                    {
-                        "op_type": "sum",
-                        "op_inputs": {"X": ["input1"]},
-                        "op_outputs": {"Out": ["output"]},
-                        "op_attrs": {},
-                    }
-                ]
-                ops = self.generate_op_config(ops_config)
-                program_config = ProgramConfig(
-                    ops=ops,
-                    weights={},
-                    inputs={
-                        "input1": TensorConfig(
-                            data_gen=partial(generate_input1, batch)
-                        ),
-                    },
-                    outputs=["output"],
-                )
-
-                yield program_config
+        dims_list = [1, 2, 3, 4]
+        batch_list = [1, 4]
+        grid = [dims_list, batch_list]
+        for dims, batch in itertools.product(*grid):
+            self.dims = dims
+            ops_config = [
+                {
+                    'op_type': 'sum',
+                    'op_inputs': {'X': ['input1']},
+                    'op_outputs': {'Out': ['output']},
+                    'op_attrs': {},
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input1': TensorConfig(
+                        data_gen=lambda: generate_input1(batch)
+                    )
+                },
+                outputs=['output'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -274,21 +298,36 @@ class TrtConvertSumTest1(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(True), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(True), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(True),
+                1e-03,
+            )
 
     def test(self):
         self.run_test()

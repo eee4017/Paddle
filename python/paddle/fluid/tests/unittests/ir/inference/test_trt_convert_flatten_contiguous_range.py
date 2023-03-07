@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import unittest
 import numpy as np
 import paddle.inference as paddle_infer
@@ -25,42 +26,45 @@ class TrtConvertFlattenContiguousRangeTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input(batch):
             return np.random.random([2, batch, 4, 8, 3]).astype(np.float32)
 
-        for batch in [1, 2, 4]:
-            for start_axis in range(5):
-                for stop_axis in range(start_axis, 5):
-                    type = "flatten_contiguous_range"
-                    op_outputs = {
-                        "Out": ["output_data"],
-                        "XShape": ["xshape_data"],
-                    }
-                    ops_config = [
-                        {
-                            "op_type": type,
-                            "op_inputs": {"X": ["input_data"]},
-                            "op_outputs": op_outputs,
-                            "op_attrs": {
-                                "start_axis": start_axis,
-                                "stop_axis": stop_axis,
-                            },
-                        }
-                    ]
-                    ops = self.generate_op_config(ops_config)
-
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={},
-                        inputs={
-                            "input_data": TensorConfig(
-                                data_gen=partial(generate_input, batch)
-                            )
-                        },
-                        outputs=["output_data"],
+        batch_list = [1, 2, 4]
+        start_axis_list = range(5)
+        stop_axis_list = range(5)
+        grid = [batch_list, start_axis_list, stop_axis_list]
+        for batch, start_axis, stop_axis in itertools.product(*grid):
+            if start_axis > stop_axis:
+                continue
+            type = 'flatten_contiguous_range'
+            op_outputs = {'Out': ['output_data'], 'XShape': ['xshape_data']}
+            ops_config = [
+                {
+                    'op_type': type,
+                    'op_inputs': {'X': ['input_data']},
+                    'op_outputs': op_outputs,
+                    'op_attrs': {
+                        'start_axis': start_axis,
+                        'stop_axis': stop_axis,
+                    },
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input(batch)
                     )
-                    yield program_config
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -94,25 +98,36 @@ class TrtConvertFlattenContiguousRangeTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def test(self):
         self.run_test()

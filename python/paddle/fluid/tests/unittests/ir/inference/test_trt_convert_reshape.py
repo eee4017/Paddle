@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -43,6 +44,9 @@ class TrtConvertReshapeTest(TrtLayerAutoScanTest):
 
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]]):
             if self.dims == 4:
@@ -67,48 +71,44 @@ class TrtConvertReshapeTest(TrtLayerAutoScanTest):
         def generate_shapeT2_data(attrs: List[Dict[str, Any]]):
             return np.array([24]).astype(np.int32)
 
-        for dims in [4, 3, 2, 1]:
-            for shape in [
-                [1, 6, 8],
-                [1, 2, 4, 6],
-                [1, 1, 0, 12],
-                [1, 0, 6],
-                [1, -1, 12],
-                [2, -1],
-                [3, 16],
-                [3, 4, 4],
-                [48],
-                [-1, 48],
-            ]:
-                dics = [
-                    {
-                        "shape": shape,
-                    },
-                ]
-                self.dims = dims
-                dics_intput = [{"X": ["reshape_input"]}]
-
-                ops_config = [
-                    {
-                        "op_type": "reshape",
-                        "op_inputs": dics_intput[0],
-                        "op_outputs": {"Out": ["reshape_out"]},
-                        "op_attrs": dics[0],
-                    }
-                ]
-                ops = self.generate_op_config(ops_config)
-                program_config = ProgramConfig(
-                    ops=ops,
-                    weights={},
-                    inputs={
-                        "reshape_input": TensorConfig(
-                            data_gen=partial(generate_input1, dics)
-                        )
-                    },
-                    outputs=["reshape_out"],
-                )
-
-                yield program_config
+        dims_list = [4, 3, 2, 1]
+        shape_list = [
+            [1, 6, 8],
+            [1, 2, 4, 6],
+            [1, 1, 0, 12],
+            [1, 0, 6],
+            [1, -1, 12],
+            [2, -1],
+            [3, 16],
+            [3, 4, 4],
+            [48],
+            [-1, 48],
+        ]
+        grid = [dims_list, shape_list]
+        for dims, shape in itertools.product(*grid):
+            dics = [{'shape': shape}]
+            self.dims = dims
+            dics_intput = [{'X': ['reshape_input']}]
+            ops_config = [
+                {
+                    'op_type': 'reshape',
+                    'op_inputs': dics_intput[0],
+                    'op_outputs': {'Out': ['reshape_out']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'reshape_input': TensorConfig(
+                        data_gen=lambda: generate_input1(dics)
+                    )
+                },
+                outputs=['reshape_out'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -169,25 +169,36 @@ class TrtConvertReshapeTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def add_skip_trt_case(self):
         pass
@@ -202,6 +213,9 @@ class TrtConvertReshapeTest2(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]]):
             if self.dims == 4:
@@ -213,62 +227,50 @@ class TrtConvertReshapeTest2(TrtLayerAutoScanTest):
             elif self.dims == 1:
                 return np.random.random([48]).astype(np.float32)
 
-        for dims in [4, 3, 2, 1]:
-            for shape in [[-1, 48]]:
-                dics = [
-                    {
-                        "shape": shape,
-                    },
-                    {},
-                ]
-                self.dims = dims
-                dics_intput = [
-                    {
-                        "X": ["reshape_input"],
-                        "ShapeTensor": ["shapeT1_data", "shapeT2_data"],
-                    },
-                ]
-                ops_config = [
-                    {
-                        "op_type": "fill_constant",
-                        "op_inputs": {},
-                        "op_outputs": {"Out": ["shapeT1_data"]},
-                        "op_attrs": {
-                            "dtype": 2,
-                            "str_value": "2",
-                            "shape": [1],
-                        },
-                    },
-                    {
-                        "op_type": "fill_constant",
-                        "op_inputs": {},
-                        "op_outputs": {"Out": ["shapeT2_data"]},
-                        "op_attrs": {
-                            "dtype": 2,
-                            "str_value": "24",
-                            "shape": [1],
-                        },
-                    },
-                    {
-                        "op_type": "reshape",
-                        "op_inputs": dics_intput[0],
-                        "op_outputs": {"Out": ["reshape_out"]},
-                        "op_attrs": dics[0],
-                    },
-                ]
-                ops = self.generate_op_config(ops_config)
-                program_config = ProgramConfig(
-                    ops=ops,
-                    weights={},
-                    inputs={
-                        "reshape_input": TensorConfig(
-                            data_gen=partial(generate_input1, dics)
-                        )
-                    },
-                    outputs=["reshape_out"],
-                )
-
-                yield program_config
+        dims_list = [4, 3, 2, 1]
+        shape_list = [[-1, 48]]
+        grid = [dims_list, shape_list]
+        for dims, shape in itertools.product(*grid):
+            dics = [{'shape': shape}, {}]
+            self.dims = dims
+            dics_intput = [
+                {
+                    'X': ['reshape_input'],
+                    'ShapeTensor': ['shapeT1_data', 'shapeT2_data'],
+                }
+            ]
+            ops_config = [
+                {
+                    'op_type': 'fill_constant',
+                    'op_inputs': {},
+                    'op_outputs': {'Out': ['shapeT1_data']},
+                    'op_attrs': {'dtype': 2, 'str_value': '2', 'shape': [1]},
+                },
+                {
+                    'op_type': 'fill_constant',
+                    'op_inputs': {},
+                    'op_outputs': {'Out': ['shapeT2_data']},
+                    'op_attrs': {'dtype': 2, 'str_value': '24', 'shape': [1]},
+                },
+                {
+                    'op_type': 'reshape',
+                    'op_inputs': dics_intput[0],
+                    'op_outputs': {'Out': ['reshape_out']},
+                    'op_attrs': dics[0],
+                },
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'reshape_input': TensorConfig(
+                        data_gen=lambda: generate_input1(dics)
+                    )
+                },
+                outputs=['reshape_out'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -305,10 +307,12 @@ class TrtConvertReshapeTest2(TrtLayerAutoScanTest):
 
         # for dynamic_shape
         generate_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 2), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 2), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 2), 1e-05)
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 2), 1e-03)
 
     def add_skip_trt_case(self):
         pass
@@ -323,6 +327,9 @@ class TrtConvertReshapeTest3(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]]):
             if self.dims == 4:
@@ -334,52 +341,41 @@ class TrtConvertReshapeTest3(TrtLayerAutoScanTest):
             elif self.dims == 1:
                 return np.random.random([144]).astype(np.float32)
 
-        for dims in [4, 3, 2, 1]:
-            for shape in [[-1, 144]]:
-                dics = [
-                    {
-                        "shape": shape,
-                    },
-                    {},
-                ]
-                self.dims = dims
-                dics_intput = [
-                    {
-                        "X": ["reshape_input"],
-                        "shape_data": ["shape_data"],
-                    },
-                ]
-                ops_config = [
-                    {
-                        "op_type": "fill_constant",
-                        "op_inputs": {},
-                        "op_outputs": {"Out": ["shape_data"]},
-                        "op_attrs": {
-                            "dtype": 2,
-                            "str_value": "12",
-                            "shape": [2],
-                        },
-                    },
-                    {
-                        "op_type": "reshape",
-                        "op_inputs": dics_intput[0],
-                        "op_outputs": {"Out": ["reshape_out"]},
-                        "op_attrs": dics[0],
-                    },
-                ]
-                ops = self.generate_op_config(ops_config)
-                program_config = ProgramConfig(
-                    ops=ops,
-                    weights={},
-                    inputs={
-                        "reshape_input": TensorConfig(
-                            data_gen=partial(generate_input1, dics)
-                        )
-                    },
-                    outputs=["reshape_out"],
-                )
-
-                yield program_config
+        dims_list = [4, 3, 2, 1]
+        shape_list = [[-1, 144]]
+        grid = [dims_list, shape_list]
+        for dims, shape in itertools.product(*grid):
+            dics = [{'shape': shape}, {}]
+            self.dims = dims
+            dics_intput = [
+                {'X': ['reshape_input'], 'shape_data': ['shape_data']}
+            ]
+            ops_config = [
+                {
+                    'op_type': 'fill_constant',
+                    'op_inputs': {},
+                    'op_outputs': {'Out': ['shape_data']},
+                    'op_attrs': {'dtype': 2, 'str_value': '12', 'shape': [2]},
+                },
+                {
+                    'op_type': 'reshape',
+                    'op_inputs': dics_intput[0],
+                    'op_outputs': {'Out': ['reshape_out']},
+                    'op_attrs': dics[0],
+                },
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'reshape_input': TensorConfig(
+                        data_gen=lambda: generate_input1(dics)
+                    )
+                },
+                outputs=['reshape_out'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -416,10 +412,12 @@ class TrtConvertReshapeTest3(TrtLayerAutoScanTest):
 
         # for dynamic_shape
         generate_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 2), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 2), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 2), 1e-05)
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 2), 1e-03)
 
     def add_skip_trt_case(self):
         pass

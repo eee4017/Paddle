@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -26,191 +27,199 @@ class TrtConvertSliceTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
+        def generate_input1():
+            return (
+                np.random.random([batch, seq_len, input_size]).astype(
+                    np.float32
+                )
+                * 2
+                - 1
+            )
+
+        # initial input -> hidden
+        def generate_w0():
+            return (
+                np.random.random([4 * hidden_size, input_size]).astype(
+                    np.float32
+                )
+                * 2
+                - 1
+            )
+
+        # prev layer's output -> hidden
+        def generate_w1():
+            return (
+                np.random.random([4 * hidden_size, K * hidden_size]).astype(
+                    np.float32
+                )
+                * 2
+                - 1
+            )
+
+        #
+        def generate_w2():
+            return (
+                np.random.random([4 * hidden_size, hidden_size]).astype(
+                    np.float32
+                )
+                * 2
+                - 1
+            )
+
+        def generate_b():
+            return (
+                np.random.random([4 * hidden_size]).astype(np.float32) * 2 - 1
+            )
+
+        def generate_ops_config(
+            hidden_size, input_size, batch, seq_len, num_layers, is_bidirec
+        ):
+            dics = []
+            dics.append(
+                {
+                    "hidden_size": hidden_size,
+                    "input_size": input_size,
+                    "num_layers": num_layers,
+                    "mode": "LSTM",
+                    "is_bidirec": is_bidirec,
+                    "is_test": True,
+                    "dropout_prob": 0.0,
+                    # for my convience
+                    "batch": batch,
+                    "seq_len": seq_len,
+                }
+            )
+
+            K = 1
+            if dics[0]["is_bidirec"]:
+                K = 2
+
+            dics.append(
+                {
+                    "dtype": 5,
+                    "input_dim_idx": 0,
+                    "str_value": "0.0",
+                    "shape": [
+                        K * num_layers,
+                        -1,
+                        hidden_size,
+                    ],
+                    "output_dim_idx": 1,
+                }
+            )
+            dics.append({"axis": [1, 0, 2]})
+            # set  weights
+            WeightList = [
+                "weight" + str(i) for i in range(4 * K * dics[0]["num_layers"])
+            ]
+            weights = {}
+            for i in range((int)(len(WeightList) / 2)):
+                # mean this weight : input->hidden
+                # input has 2 case: initial input input_size, K * hidden form the prev layer.
+                if i % 2 == 0:
+                    if i <= K:
+                        weights[WeightList[i]] = TensorConfig(
+                            data_gen=partial(generate_w0)
+                        )
+                    else:
+                        weights[WeightList[i]] = TensorConfig(
+                            data_gen=partial(generate_w1)
+                        )
+                # mean this weight : hidden->hidden
+                if i % 2 == 1:
+                    weights[WeightList[i]] = TensorConfig(
+                        data_gen=partial(generate_w2)
+                    )
+            for i in range((int)(len(WeightList) / 2), len(WeightList)):
+                weights[WeightList[i]] = TensorConfig(
+                    data_gen=partial(generate_b)
+                )
+            ops_config = [
+                {
+                    "op_type": "fill_constant_batch_size_like",
+                    "op_inputs": {"Input": ["input_data"]},
+                    "op_outputs": {"Out": ["prestate1"]},
+                    "op_attrs": dics[1],
+                },
+                {
+                    "op_type": "fill_constant_batch_size_like",
+                    "op_inputs": {"Input": ["input_data"]},
+                    "op_outputs": {"Out": ["prestate2"]},
+                    "op_attrs": dics[1],
+                },
+                {
+                    "op_type": "transpose2",
+                    "op_inputs": {"X": ["input_data"]},
+                    "op_outputs": {"Out": ["rnn_input_data"]},
+                    "op_attrs": dics[2],
+                },
+                {
+                    "op_type": "rnn",
+                    "op_inputs": {
+                        "Input": ["rnn_input_data"],
+                        # prev_c, prev_h
+                        "PreState": [
+                            "prestate1",
+                            "prestate2",
+                        ],
+                        "WeightList": WeightList,
+                    },
+                    "op_outputs": {
+                        "Out": ["rnn_output_data"],
+                        "State": [
+                            "state_output_data0",
+                            "state_output_data1",
+                        ],
+                        "Reserve": ["reserve_data"],
+                        "DropoutState": ["DropoutState_data"],
+                    },
+                    "op_attrs": dics[0],
+                },
+            ]
+            ops = self.generate_op_config(ops_config)
+            return ops, weights
+
         self.trt_param.workspace_size = 1073741824
-        for hidden_size in [30]:
-            for input_size in [30]:
-                for batch in [2]:
-                    for seq_len in [5]:
-                        for num_layers in [1, 2]:
-                            for is_bidirec in [True, False]:
-                                dics = []
-                                dics.append(
-                                    {
-                                        "hidden_size": hidden_size,
-                                        "input_size": input_size,
-                                        "num_layers": num_layers,
-                                        "mode": "LSTM",
-                                        "is_bidirec": is_bidirec,
-                                        "is_test": True,
-                                        "dropout_prob": 0.0,
-                                        # for my convience
-                                        "batch": batch,
-                                        "seq_len": seq_len,
-                                    }
-                                )
-
-                                K = 1
-                                if dics[0]["is_bidirec"]:
-                                    K = 2
-
-                                def generate_input1():
-                                    return (
-                                        np.random.random(
-                                            [batch, seq_len, input_size]
-                                        ).astype(np.float32)
-                                        * 2
-                                        - 1
-                                    )
-
-                                # initial input -> hidden
-                                def generate_w0():
-                                    return (
-                                        np.random.random(
-                                            [4 * hidden_size, input_size]
-                                        ).astype(np.float32)
-                                        * 2
-                                        - 1
-                                    )
-
-                                # prev layer's output -> hidden
-                                def generate_w1():
-                                    return (
-                                        np.random.random(
-                                            [4 * hidden_size, K * hidden_size]
-                                        ).astype(np.float32)
-                                        * 2
-                                        - 1
-                                    )
-
-                                #
-                                def generate_w2():
-                                    return (
-                                        np.random.random(
-                                            [4 * hidden_size, hidden_size]
-                                        ).astype(np.float32)
-                                        * 2
-                                        - 1
-                                    )
-
-                                def generate_b():
-                                    return (
-                                        np.random.random(
-                                            [4 * hidden_size]
-                                        ).astype(np.float32)
-                                        * 2
-                                        - 1
-                                    )
-
-                                dics.append(
-                                    {
-                                        "dtype": 5,
-                                        "input_dim_idx": 0,
-                                        "str_value": "0.0",
-                                        "shape": [
-                                            K * num_layers,
-                                            -1,
-                                            hidden_size,
-                                        ],
-                                        "output_dim_idx": 1,
-                                    }
-                                )
-                                dics.append({"axis": [1, 0, 2]})
-                                # set  weights
-                                WeightList = [
-                                    "weight" + str(i)
-                                    for i in range(
-                                        4 * K * dics[0]["num_layers"]
-                                    )
-                                ]
-                                weights = {}
-                                for i in range((int)(len(WeightList) / 2)):
-                                    # mean this weight : input->hidden
-                                    # input has 2 case: initial input input_size, K * hidden form the prev layer.
-                                    if i % 2 == 0:
-                                        if i <= K:
-                                            weights[
-                                                WeightList[i]
-                                            ] = TensorConfig(
-                                                data_gen=partial(generate_w0)
-                                            )
-                                        else:
-                                            weights[
-                                                WeightList[i]
-                                            ] = TensorConfig(
-                                                data_gen=partial(generate_w1)
-                                            )
-                                    # mean this weight : hidden->hidden
-                                    if i % 2 == 1:
-                                        weights[WeightList[i]] = TensorConfig(
-                                            data_gen=partial(generate_w2)
-                                        )
-                                for i in range(
-                                    (int)(len(WeightList) / 2), len(WeightList)
-                                ):
-                                    weights[WeightList[i]] = TensorConfig(
-                                        data_gen=partial(generate_b)
-                                    )
-                                ops_config = [
-                                    {
-                                        "op_type": "fill_constant_batch_size_like",
-                                        "op_inputs": {"Input": ["input_data"]},
-                                        "op_outputs": {"Out": ["prestate1"]},
-                                        "op_attrs": dics[1],
-                                    },
-                                    {
-                                        "op_type": "fill_constant_batch_size_like",
-                                        "op_inputs": {"Input": ["input_data"]},
-                                        "op_outputs": {"Out": ["prestate2"]},
-                                        "op_attrs": dics[1],
-                                    },
-                                    {
-                                        "op_type": "transpose2",
-                                        "op_inputs": {"X": ["input_data"]},
-                                        "op_outputs": {
-                                            "Out": ["rnn_input_data"]
-                                        },
-                                        "op_attrs": dics[2],
-                                    },
-                                    {
-                                        "op_type": "rnn",
-                                        "op_inputs": {
-                                            "Input": ["rnn_input_data"],
-                                            # prev_c, prev_h
-                                            "PreState": [
-                                                "prestate1",
-                                                "prestate2",
-                                            ],
-                                            "WeightList": WeightList,
-                                        },
-                                        "op_outputs": {
-                                            "Out": ["rnn_output_data"],
-                                            "State": [
-                                                "state_output_data0",
-                                                "state_output_data1",
-                                            ],
-                                            "Reserve": ["reserve_data"],
-                                            "DropoutState": [
-                                                "DropoutState_data"
-                                            ],
-                                        },
-                                        "op_attrs": dics[0],
-                                    },
-                                ]
-                                ops = self.generate_op_config(ops_config)
-
-                                program_config = ProgramConfig(
-                                    ops=ops,
-                                    weights=weights,
-                                    inputs={
-                                        "input_data": TensorConfig(
-                                            data_gen=partial(generate_input1)
-                                        )
-                                    },
-                                    outputs=["rnn_output_data"],
-                                )
-
-                                yield program_config
+        hidden_size_list = [30]
+        input_size_list = [30]
+        batch_list = [2]
+        seq_len_list = [5]
+        num_layers_list = [1, 2]
+        is_bidirec_list = [True, False]
+        grid = [
+            hidden_size_list,
+            input_size_list,
+            batch_list,
+            seq_len_list,
+            num_layers_list,
+            is_bidirec_list,
+        ]
+        for (
+            hidden_size,
+            input_size,
+            batch,
+            seq_len,
+            num_layers,
+            is_bidirec,
+        ) in itertools.product(*grid):
+            ops, weights = generate_ops_config(
+                hidden_size, input_size, batch, seq_len, num_layers, is_bidirec
+            )
+            program_config = ProgramConfig(
+                ops=ops,
+                weights=weights,
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1()
+                    )
+                },
+                outputs=['rnn_output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -260,14 +269,20 @@ class TrtConvertSliceTest(TrtLayerAutoScanTest):
 
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), tol_fp32
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), tol_half
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                tol_fp32,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                tol_half,
+            )
 
     def test(self):
         self.run_test()

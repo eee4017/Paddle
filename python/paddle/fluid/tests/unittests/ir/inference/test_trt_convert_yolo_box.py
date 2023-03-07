@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -25,6 +26,9 @@ import os
 class TrtConvertYoloBoxTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]], batch, channel):
@@ -40,69 +44,76 @@ class TrtConvertYoloBoxTest(TrtLayerAutoScanTest):
         def generate_input2(attrs: List[Dict[str, Any]], batch):
             return np.random.random([batch, 2]).astype(np.int32)
 
-        for batch in [1, 4]:
-            for class_num in [80, 30]:
-                for anchors in [[10, 13, 16, 30, 33, 23]]:
-                    for downsample_ratio in [32, 16]:
-                        for conf_thresh in [0.01, 0.02]:
-                            for clip_bbox in [True, False]:
-                                for scale_x_y in [1.0, 0.9]:
-                                    for iou_aware in [False, True]:
-                                        for iou_aware_factor in [0.5]:
-                                            dics = [
-                                                {
-                                                    "class_num": class_num,
-                                                    "anchors": anchors,
-                                                    "downsample_ratio": downsample_ratio,
-                                                    "conf_thresh": conf_thresh,
-                                                    "clip_bbox": clip_bbox,
-                                                    "scale_x_y": scale_x_y,
-                                                    "iou_aware": iou_aware,
-                                                    "iou_aware_factor": iou_aware_factor,
-                                                },
-                                                {},
-                                            ]
-                                            ops_config = [
-                                                {
-                                                    "op_type": "yolo_box",
-                                                    "op_inputs": {
-                                                        "X": ["yolo_box_input"],
-                                                        "ImgSize": ["imgsize"],
-                                                    },
-                                                    "op_outputs": {
-                                                        "Boxes": ["boxes"],
-                                                        "Scores": ["scores"],
-                                                    },
-                                                    "op_attrs": dics[0],
-                                                }
-                                            ]
-                                            ops = self.generate_op_config(
-                                                ops_config
-                                            )
-                                            program_config = ProgramConfig(
-                                                ops=ops,
-                                                weights={},
-                                                inputs={
-                                                    "yolo_box_input": TensorConfig(
-                                                        data_gen=partial(
-                                                            generate_input1,
-                                                            dics,
-                                                            batch,
-                                                            class_num,
-                                                        )
-                                                    ),
-                                                    "imgsize": TensorConfig(
-                                                        data_gen=partial(
-                                                            generate_input2,
-                                                            dics,
-                                                            batch,
-                                                        )
-                                                    ),
-                                                },
-                                                outputs=["boxes", "scores"],
-                                            )
-
-                                            yield program_config
+        batch_list = [1, 4]
+        class_num_list = [80, 30]
+        anchors_list = [[10, 13, 16, 30, 33, 23]]
+        downsample_ratio_list = [32, 16]
+        conf_thresh_list = [0.01, 0.02]
+        clip_bbox_list = [True, False]
+        scale_x_y_list = [1.0, 0.9]
+        iou_aware_list = [False, True]
+        iou_aware_factor_list = [0.5]
+        grid = [
+            batch_list,
+            class_num_list,
+            anchors_list,
+            downsample_ratio_list,
+            conf_thresh_list,
+            clip_bbox_list,
+            scale_x_y_list,
+            iou_aware_list,
+            iou_aware_factor_list,
+        ]
+        for (
+            batch,
+            class_num,
+            anchors,
+            downsample_ratio,
+            conf_thresh,
+            clip_bbox,
+            scale_x_y,
+            iou_aware,
+            iou_aware_factor,
+        ) in itertools.product(*grid):
+            dics = [
+                {
+                    'class_num': class_num,
+                    'anchors': anchors,
+                    'downsample_ratio': downsample_ratio,
+                    'conf_thresh': conf_thresh,
+                    'clip_bbox': clip_bbox,
+                    'scale_x_y': scale_x_y,
+                    'iou_aware': iou_aware,
+                    'iou_aware_factor': iou_aware_factor,
+                },
+                {},
+            ]
+            ops_config = [
+                {
+                    'op_type': 'yolo_box',
+                    'op_inputs': {
+                        'X': ['yolo_box_input'],
+                        'ImgSize': ['imgsize'],
+                    },
+                    'op_outputs': {'Boxes': ['boxes'], 'Scores': ['scores']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'yolo_box_input': TensorConfig(
+                        data_gen=lambda: generate_input1(dics, batch, class_num)
+                    ),
+                    'imgsize': TensorConfig(
+                        data_gen=lambda: generate_input2(dics, batch)
+                    ),
+                },
+                outputs=['boxes', 'scores'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -150,25 +161,36 @@ class TrtConvertYoloBoxTest(TrtLayerAutoScanTest):
         ]
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def add_skip_trt_case(self):
         def teller2(program_config, predictor_config):

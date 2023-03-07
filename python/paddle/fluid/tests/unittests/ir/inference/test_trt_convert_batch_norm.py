@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import unittest
 import numpy as np
 import paddle.inference as paddle_infer
@@ -24,6 +25,9 @@ from typing import Optional, List, Callable, Dict, Any, Set
 class TrtConvertBatchNormTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]], batch):
@@ -52,123 +56,116 @@ class TrtConvertBatchNormTest(TrtLayerAutoScanTest):
         def generate_MomentumTensor(attrs: List[Dict[str, Any]], batch):
             return np.full((3), 0.9).astype("float32")
 
-        for dims in [2, 3, 4]:
-            for num_input in [0, 1]:
-                for batch in [1, 4]:
-                    for epsilon in [1e-6, 1e-5, 1e-4]:
-                        for data_layout in ["NCHW"]:
-                            for momentum in [0.9, 0.8]:
-                                self.num_input = num_input
-                                self.dims = dims
-                                dics = [
-                                    {
-                                        "epsilon": epsilon,
-                                        "data_layout": data_layout,
-                                        "momentum": momentum,
-                                        "is_test": True,
-                                        "trainable_statistics": False,
-                                    },
-                                    {},
-                                ]
-                                dics_intput = [
-                                    {
-                                        "X": ["batch_norm_input"],
-                                        "Bias": ["Bias"],
-                                        "Mean": ["Mean"],
-                                        "Scale": ["Scale"],
-                                        "Variance": ["Variance"],
-                                        "MomentumTensor": ["MomentumTensor"],
-                                    },
-                                    {
-                                        "X": ["batch_norm_input"],
-                                        "Bias": ["Bias"],
-                                        "Mean": ["Mean"],
-                                        "Scale": ["Scale"],
-                                        "Variance": ["Variance"],
-                                    },
-                                ]
-                                dics_intputs = [
-                                    {
-                                        "Bias": TensorConfig(
-                                            data_gen=partial(
-                                                generate_bias, dics, batch
-                                            )
-                                        ),
-                                        "Mean": TensorConfig(
-                                            data_gen=partial(
-                                                generate_mean, dics, batch
-                                            )
-                                        ),
-                                        "Scale": TensorConfig(
-                                            data_gen=partial(
-                                                generate_scale, dics, batch
-                                            )
-                                        ),
-                                        "Variance": TensorConfig(
-                                            data_gen=partial(
-                                                generate_variance, dics, batch
-                                            )
-                                        ),
-                                        "MomentumTensor": TensorConfig(
-                                            data_gen=partial(
-                                                generate_MomentumTensor,
-                                                dics,
-                                                batch,
-                                            )
-                                        ),
-                                    },
-                                    {
-                                        "Bias": TensorConfig(
-                                            data_gen=partial(
-                                                generate_bias, dics, batch
-                                            )
-                                        ),
-                                        "Mean": TensorConfig(
-                                            data_gen=partial(
-                                                generate_mean, dics, batch
-                                            )
-                                        ),
-                                        "Scale": TensorConfig(
-                                            data_gen=partial(
-                                                generate_scale, dics, batch
-                                            )
-                                        ),
-                                        "Variance": TensorConfig(
-                                            data_gen=partial(
-                                                generate_variance, dics, batch
-                                            )
-                                        ),
-                                    },
-                                ]
-                                ops_config = [
-                                    {
-                                        "op_type": "batch_norm",
-                                        "op_inputs": dics_intput[num_input],
-                                        "op_outputs": {
-                                            "Y": ["batch_norm_out"],
-                                            "MeanOut": ["Mean"],
-                                            "VarianceOut": ["Variance"],
-                                            "SavedMean": ["SavedMean"],
-                                            "SavedVariance": ["SavedVariance"],
-                                        },
-                                        "op_attrs": dics[0],
-                                    }
-                                ]
-                                ops = self.generate_op_config(ops_config)
-                                program_config = ProgramConfig(
-                                    ops=ops,
-                                    weights=dics_intputs[num_input],
-                                    inputs={
-                                        "batch_norm_input": TensorConfig(
-                                            data_gen=partial(
-                                                generate_input1, dics, batch
-                                            )
-                                        )
-                                    },
-                                    outputs=["batch_norm_out"],
-                                )
-
-                                yield program_config
+        dims_list = [2, 3, 4]
+        num_input_list = [0, 1]
+        batch_list = [1, 4]
+        epsilon_list = [1e-06, 1e-05, 0.0001]
+        data_layout_list = ['NCHW']
+        momentum_list = [0.9, 0.8]
+        grid = [
+            dims_list,
+            num_input_list,
+            batch_list,
+            epsilon_list,
+            data_layout_list,
+            momentum_list,
+        ]
+        for (
+            dims,
+            num_input,
+            batch,
+            epsilon,
+            data_layout,
+            momentum,
+        ) in itertools.product(*grid):
+            self.num_input = num_input
+            self.dims = dims
+            dics = [
+                {
+                    'epsilon': epsilon,
+                    'data_layout': data_layout,
+                    'momentum': momentum,
+                    'is_test': True,
+                    'trainable_statistics': False,
+                },
+                {},
+            ]
+            dics_intput = [
+                {
+                    'X': ['batch_norm_input'],
+                    'Bias': ['Bias'],
+                    'Mean': ['Mean'],
+                    'Scale': ['Scale'],
+                    'Variance': ['Variance'],
+                    'MomentumTensor': ['MomentumTensor'],
+                },
+                {
+                    'X': ['batch_norm_input'],
+                    'Bias': ['Bias'],
+                    'Mean': ['Mean'],
+                    'Scale': ['Scale'],
+                    'Variance': ['Variance'],
+                },
+            ]
+            dics_intputs = [
+                {
+                    'Bias': TensorConfig(
+                        data_gen=partial(generate_bias, dics, batch)
+                    ),
+                    'Mean': TensorConfig(
+                        data_gen=partial(generate_mean, dics, batch)
+                    ),
+                    'Scale': TensorConfig(
+                        data_gen=partial(generate_scale, dics, batch)
+                    ),
+                    'Variance': TensorConfig(
+                        data_gen=partial(generate_variance, dics, batch)
+                    ),
+                    'MomentumTensor': TensorConfig(
+                        data_gen=partial(generate_MomentumTensor, dics, batch)
+                    ),
+                },
+                {
+                    'Bias': TensorConfig(
+                        data_gen=partial(generate_bias, dics, batch)
+                    ),
+                    'Mean': TensorConfig(
+                        data_gen=partial(generate_mean, dics, batch)
+                    ),
+                    'Scale': TensorConfig(
+                        data_gen=partial(generate_scale, dics, batch)
+                    ),
+                    'Variance': TensorConfig(
+                        data_gen=partial(generate_variance, dics, batch)
+                    ),
+                },
+            ]
+            ops_config = [
+                {
+                    'op_type': 'batch_norm',
+                    'op_inputs': dics_intput[num_input],
+                    'op_outputs': {
+                        'Y': ['batch_norm_out'],
+                        'MeanOut': ['Mean'],
+                        'VarianceOut': ['Variance'],
+                        'SavedMean': ['SavedMean'],
+                        'SavedVariance': ['SavedVariance'],
+                    },
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights=dics_intputs[num_input],
+                inputs={
+                    'batch_norm_input': TensorConfig(
+                        data_gen=lambda: generate_input1(dics, batch)
+                    )
+                },
+                outputs=['batch_norm_out'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -229,25 +226,36 @@ class TrtConvertBatchNormTest(TrtLayerAutoScanTest):
         ]
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def add_skip_trt_case(self):
         def teller1(program_config, predictor_config):

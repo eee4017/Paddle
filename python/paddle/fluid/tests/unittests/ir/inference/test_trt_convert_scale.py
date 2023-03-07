@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -24,6 +25,9 @@ import unittest
 class TrtConvertScaleTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]], batch):
@@ -39,64 +43,70 @@ class TrtConvertScaleTest(TrtLayerAutoScanTest):
         def generate_weight1(attrs: List[Dict[str, Any]]):
             return np.ones([1]).astype(np.float32)
 
-        for num_input in [0, 1]:
-            for dims in [1, 2, 3, 4]:
-                for batch in [1, 2]:
-                    for scale in [0.1, -1.0]:
-                        for bias in [0.0, 1.2]:
-                            for bias_after_scale in [False, True]:
-                                self.num_input = num_input
-                                self.dims = dims
-                                dics = [
-                                    {
-                                        "scale": scale,
-                                        "bias": bias,
-                                        "bias_after_scale": bias_after_scale,
-                                    },
-                                    {},
-                                ]
-
-                                dics_intput = [
-                                    {
-                                        "X": ["scale_input"],
-                                        "ScaleTensor": ["ScaleTensor"],
-                                    },
-                                    {"X": ["scale_input"]},
-                                ]
-                                dics_intputs = [
-                                    {
-                                        "ScaleTensor": TensorConfig(
-                                            data_gen=partial(
-                                                generate_weight1, dics
-                                            )
-                                        )
-                                    },
-                                    {},
-                                ]
-
-                                ops_config = [
-                                    {
-                                        "op_type": "scale",
-                                        "op_inputs": dics_intput[num_input],
-                                        "op_outputs": {"Out": ["scale_out"]},
-                                        "op_attrs": dics[0],
-                                    }
-                                ]
-                                ops = self.generate_op_config(ops_config)
-                                program_config = ProgramConfig(
-                                    ops=ops,
-                                    weights=dics_intputs[num_input],
-                                    inputs={
-                                        "scale_input": TensorConfig(
-                                            data_gen=partial(
-                                                generate_input1, dics, batch
-                                            )
-                                        )
-                                    },
-                                    outputs=["scale_out"],
-                                )
-
-                                yield program_config
+        num_input_list = [0, 1]
+        dims_list = [1, 2, 3, 4]
+        batch_list = [1, 2]
+        scale_list = [0.1, -1.0]
+        bias_list = [0.0, 1.2]
+        bias_after_scale_list = [False, True]
+        grid = [
+            num_input_list,
+            dims_list,
+            batch_list,
+            scale_list,
+            bias_list,
+            bias_after_scale_list,
+        ]
+        for (
+            num_input,
+            dims,
+            batch,
+            scale,
+            bias,
+            bias_after_scale,
+        ) in itertools.product(*grid):
+            self.num_input = num_input
+            self.dims = dims
+            dics = [
+                {
+                    'scale': scale,
+                    'bias': bias,
+                    'bias_after_scale': bias_after_scale,
+                },
+                {},
+            ]
+            dics_intput = [
+                {'X': ['scale_input'], 'ScaleTensor': ['ScaleTensor']},
+                {'X': ['scale_input']},
+            ]
+            dics_intputs = [
+                {
+                    'ScaleTensor': TensorConfig(
+                        data_gen=partial(generate_weight1, dics)
+                    )
+                },
+                {},
+            ]
+            ops_config = [
+                {
+                    'op_type': 'scale',
+                    'op_inputs': dics_intput[num_input],
+                    'op_outputs': {'Out': ['scale_out']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights=dics_intputs[num_input],
+                inputs={
+                    'scale_input': TensorConfig(
+                        data_gen=lambda: generate_input1(dics, batch)
+                    )
+                },
+                outputs=['scale_out'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -139,25 +149,36 @@ class TrtConvertScaleTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def add_skip_trt_case(self):
         def teller1(program_config, predictor_config):

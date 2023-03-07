@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import unittest
 import numpy as np
 import paddle.inference as paddle_infer
@@ -25,6 +26,9 @@ class TrtConvertRoiAlignTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]], batch):
             return np.ones([batch, 256, 32, 32]).astype(np.float32)
@@ -35,88 +39,90 @@ class TrtConvertRoiAlignTest(TrtLayerAutoScanTest):
         def generate_input3(attrs: List[Dict[str, Any]], batch):
             return np.random.random([batch]).astype(np.int32)
 
-        for num_input in [0, 1]:
-            for batch in [1, 2, 4]:
-                for spatial_scale in [0.5, 0.6]:
-                    for pooled_height in [7, 1]:
-                        for pooled_width in [7, 1]:
-                            for sampling_ratio in [-1, 4, 8]:
-                                for aligned in [True, False]:
-                                    self.num_input = num_input
-                                    if num_input == 1:
-                                        batch = 1
-                                    dics = [
-                                        {
-                                            "spatial_scale": spatial_scale,
-                                            "pooled_height": pooled_height,
-                                            "pooled_width": pooled_width,
-                                            "sampling_ratio": sampling_ratio,
-                                            "aligned": aligned,
-                                        },
-                                        {},
-                                    ]
-                                    dics_input = [
-                                        {
-                                            "X": ["roi_align_input"],
-                                            "ROIs": ["ROIs"],
-                                            "RoisNum": ["RoisNum"],
-                                        },
-                                        {
-                                            "X": ["roi_align_input"],
-                                            "ROIs": ["ROIs"],
-                                        },
-                                    ]
-                                    program_input = [
-                                        {
-                                            "roi_align_input": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_input1, dics, batch
-                                                )
-                                            ),
-                                            "ROIs": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_input2, dics, batch
-                                                )
-                                            ),
-                                            "RoisNum": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_input3, dics, batch
-                                                )
-                                            ),
-                                        },
-                                        {
-                                            "roi_align_input": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_input1, dics, batch
-                                                )
-                                            ),
-                                            "ROIs": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_input2, dics, batch
-                                                ),
-                                                lod=[[32, 3]],
-                                            ),
-                                        },
-                                    ]
-                                    ops_config = [
-                                        {
-                                            "op_type": "roi_align",
-                                            "op_inputs": dics_input[num_input],
-                                            "op_outputs": {
-                                                "Out": ["roi_align_out"]
-                                            },
-                                            "op_attrs": dics[0],
-                                        }
-                                    ]
-                                    ops = self.generate_op_config(ops_config)
-                                    program_config = ProgramConfig(
-                                        ops=ops,
-                                        weights={},
-                                        inputs=program_input[num_input],
-                                        outputs=["roi_align_out"],
-                                    )
-
-                                    yield program_config
+        num_input_list = [0, 1]
+        batch_list = [1, 2, 4]
+        spatial_scale_list = [0.5, 0.6]
+        pooled_height_list = [7, 1]
+        pooled_width_list = [7, 1]
+        sampling_ratio_list = [-1, 4, 8]
+        aligned_list = [True, False]
+        grid = [
+            num_input_list,
+            batch_list,
+            spatial_scale_list,
+            pooled_height_list,
+            pooled_width_list,
+            sampling_ratio_list,
+            aligned_list,
+        ]
+        for (
+            num_input,
+            batch,
+            spatial_scale,
+            pooled_height,
+            pooled_width,
+            sampling_ratio,
+            aligned,
+        ) in itertools.product(*grid):
+            self.num_input = num_input
+            if num_input == 1:
+                batch = 1
+            dics = [
+                {
+                    'spatial_scale': spatial_scale,
+                    'pooled_height': pooled_height,
+                    'pooled_width': pooled_width,
+                    'sampling_ratio': sampling_ratio,
+                    'aligned': aligned,
+                },
+                {},
+            ]
+            dics_input = [
+                {
+                    'X': ['roi_align_input'],
+                    'ROIs': ['ROIs'],
+                    'RoisNum': ['RoisNum'],
+                },
+                {'X': ['roi_align_input'], 'ROIs': ['ROIs']},
+            ]
+            program_input = [
+                {
+                    'roi_align_input': TensorConfig(
+                        data_gen=partial(generate_input1, dics, batch)
+                    ),
+                    'ROIs': TensorConfig(
+                        data_gen=partial(generate_input2, dics, batch)
+                    ),
+                    'RoisNum': TensorConfig(
+                        data_gen=partial(generate_input3, dics, batch)
+                    ),
+                },
+                {
+                    'roi_align_input': TensorConfig(
+                        data_gen=partial(generate_input1, dics, batch)
+                    ),
+                    'ROIs': TensorConfig(
+                        data_gen=partial(generate_input2, dics, batch),
+                        lod=[[32, 3]],
+                    ),
+                },
+            ]
+            ops_config = [
+                {
+                    'op_type': 'roi_align',
+                    'op_inputs': dics_input[num_input],
+                    'op_outputs': {'Out': ['roi_align_out']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs=program_input[num_input],
+                outputs=['roi_align_out'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -174,25 +180,36 @@ class TrtConvertRoiAlignTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def add_skip_trt_case(self):
         def teller1(program_config, predictor_config):
