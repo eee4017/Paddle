@@ -32,8 +32,7 @@ class TrtConvertBmmTest_dynamic(TrtLayerAutoScanTest):
             return np.random.random(shape).astype(np.float32)
 
         batch_list = [10, 11, 12, 13, 14, 15]
-        grid = [batch_list]
-        for batch in itertools.product(*grid):
+        for batch in batch_list:
             input1_shape = [batch, 350, 75]
             input2_shape = [batch, 75, 25]
             dics = [{}]

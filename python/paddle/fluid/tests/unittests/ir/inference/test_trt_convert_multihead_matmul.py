@@ -27,7 +27,7 @@ class TrtConvertMultiHeadMatmulTest(TrtLayerAutoScanTest):
         return True
 
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16]
+        return [np.float16, np.float32]
 
     def sample_program_configs(self):
         def generate_input1(batch, dim1):
@@ -361,17 +361,19 @@ class TrtConvertMultiHeadMatmulTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
         self.trt_param.workspace_size = 2013265920
-        yield self.create_inference_config(), (1, 4), (1e-5, 1e-5)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 4), (1e-05, 1e-05))
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
             yield (self.create_inference_config(), (1, 4), (1e-03, 1e-03))
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
         self.trt_param.workspace_size = 2013265920
-        yield (self.create_inference_config(), (1, 3), (1e-05, 1e-04))
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 3), (1e-05, 1e-04))
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
             yield (self.create_inference_config(), (1, 3), (1e-03, 1e-03))
@@ -421,7 +423,7 @@ class TrtConvertMultiHeadMatmulTest(TrtLayerAutoScanTest):
 
 class TrtConvertMultiHeadMatmulTestInt8(TrtConvertMultiHeadMatmulTest):
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16]
+        return [np.float16, np.float32]
 
     def sample_program_configs(self):
         def generate_input1(batch, dim1):
@@ -744,7 +746,7 @@ class TrtConvertVitToMultiHeadMatmulTest(TrtLayerAutoScanTest):
         return True
 
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16]
+        return [np.float16, np.float32]
 
     def sample_program_configs(self):
         def generate_input1(batch, length):

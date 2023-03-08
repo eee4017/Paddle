@@ -51,7 +51,7 @@ class TrtConvertSliceTest(TrtLayerAutoScanTest):
             )
 
         # prev layer's output -> hidden
-        def generate_w1():
+        def generate_w1(K):
             return (
                 np.random.random([4 * hidden_size, K * hidden_size]).astype(
                     np.float32
@@ -127,7 +127,7 @@ class TrtConvertSliceTest(TrtLayerAutoScanTest):
                         )
                     else:
                         weights[WeightList[i]] = TensorConfig(
-                            data_gen=partial(generate_w1)
+                            data_gen=partial(generate_w1, K)
                         )
                 # mean this weight : hidden->hidden
                 if i % 2 == 1:
