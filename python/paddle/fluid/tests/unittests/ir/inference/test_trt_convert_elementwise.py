@@ -31,12 +31,16 @@ def generate_input(shape, is_pow=False):
 
 
 def generate_weight(shape, is_pow=False, is_div=False):
-    np_data = np.random.randn(*shape).astype(np.float32)
     if is_pow:
+        # notice that the base should not be negative or it might cause undefined behavior (negative ^ float may be a complex number)
+        np_data = np.random.random(shape).astype(np.float32)
         return np_data.round(1)
     if is_div:
+        np_data = np.random.random(shape).astype(np.float32)
         return np_data + 1.0
-    return np_data
+    else:
+        np_data = np.random.randn(*shape).astype(np.float32)
+        return np_data
 
 
 # This is the special test case with weight including batch dimension
