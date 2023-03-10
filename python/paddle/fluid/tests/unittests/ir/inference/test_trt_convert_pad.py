@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -22,7 +23,6 @@ import unittest
 
 
 class TrtConvertPadTest(TrtLayerAutoScanTest):
-
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         inputs = program_config.inputs
         weights = program_config.weights
@@ -38,46 +38,50 @@ class TrtConvertPadTest(TrtLayerAutoScanTest):
 
         return True
 
-    def sample_program_configs(self):
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
+    def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]]):
             return np.ones([1, 3, 64, 64]).astype(np.float32)
 
         def generate_weight1(attrs: List[Dict[str, Any]]):
             return np.random.random([24, 3, 3, 3]).astype(np.float32)
 
-        for pad_value in [0.0, 1.0, 2.0, -100, 100.0]:
-            for paddings in [[0, 0, 0, 0, 1, 1, 1, 1], [0, 0, 0, 0, 1, 2, 3, 4],
-                             [0, 0, 1, 1, 1, 1, 1, 1],
-                             [0, 0, 0, 0, -1, -1, 1, 1]]:
-                dics = [{"pad_value": pad_value, "paddings": paddings}, {}]
-
-                ops_config = [{
-                    "op_type": "pad",
-                    "op_inputs": {
-                        "X": ["input_data"]
-                    },
-                    "op_outputs": {
-                        "Out": ["pad_output_data"]
-                    },
-                    "op_attrs": dics[0]
-                }]
-                ops = self.generate_op_config(ops_config)
-
-                program_config = ProgramConfig(
-                    ops=ops,
-                    weights={},
-                    inputs={
-                        "input_data":
-                        TensorConfig(data_gen=partial(generate_input1, dics))
-                    },
-                    outputs=["pad_output_data"])
-
-                yield program_config
+        pad_value_list = [0.0, 1.0, 2.0, -100, 100.0]
+        paddings_list = [
+            [0, 0, 0, 0, 1, 1, 1, 1],
+            [0, 0, 0, 0, 1, 2, 3, 4],
+            [0, 0, 1, 1, 1, 1, 1, 1],
+            [0, 0, 0, 0, -1, -1, 1, 1],
+        ]
+        grid = [pad_value_list, paddings_list]
+        for pad_value, paddings in itertools.product(*grid):
+            dics = [{'pad_value': pad_value, 'paddings': paddings}, {}]
+            ops_config = [
+                {
+                    'op_type': 'pad',
+                    'op_inputs': {'X': ['input_data']},
+                    'op_outputs': {'Out': ['pad_output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1(dics)
+                    )
+                },
+                outputs=['pad_output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
-            self, program_config) -> (paddle_infer.Config, List[int], float):
-
+        self, program_config
+    ) -> (paddle_infer.Config, List[int], float):
         def generate_dynamic_shape(attrs):
             self.dynamic_shape.min_input_shape = {"input_data": [1, 3, 32, 32]}
             self.dynamic_shape.max_input_shape = {"input_data": [4, 3, 64, 64]}
@@ -100,24 +104,38 @@ class TrtConvertPadTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False), 1e-2
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-02,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True), 1e-2
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-02,
+            )
 
     def add_skip_trt_case(self):
-
         def teller1(program_config, predictor_config):
             for x in range(len(program_config.ops[0].attrs['paddings']) - 4):
                 if program_config.ops[0].attrs['paddings'][x] != 0:
@@ -125,8 +143,9 @@ class TrtConvertPadTest(TrtLayerAutoScanTest):
             return False
 
         self.add_skip_case(
-            teller1, SkipReasons.TRT_NOT_IMPLEMENTED,
-            "NOT Implemented: we need to add support pad not only inplement on h or w, such as paddings = [0, 0, 1, 1, 1, 1, 1, 1]"
+            teller1,
+            SkipReasons.TRT_NOT_IMPLEMENTED,
+            "NOT Implemented: we need to add support pad not only inplement on h or w, such as paddings = [0, 0, 1, 1, 1, 1, 1, 1]",
         )
         pass
 

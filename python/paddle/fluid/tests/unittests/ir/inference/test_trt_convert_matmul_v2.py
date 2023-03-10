@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import numpy as np
 import paddle.inference as paddle_infer
 from functools import partial
@@ -23,49 +24,44 @@ import os
 
 
 class TrtConvertMatmulTest_dynamic(TrtLayerAutoScanTest):
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input(shape):
             return np.random.random(shape).astype(np.float32)
 
-        for batch in [10, 11, 12, 13, 14, 15]:
-            for trans_x in [False]:
-                for trans_y in [False]:
-                    input1_shape = [batch, 64, 350, 75]
-                    input2_shape = [75, 25]
-                    dics = [
-                        {
-                            "trans_x": trans_x,
-                            "trans_y": trans_y,
-                        }
-                    ]
-                    ops_config = [
-                        {
-                            "op_type": "matmul_v2",
-                            "op_inputs": {
-                                "X": ["input1_data"],
-                                "Y": ["input2_data"],
-                            },
-                            "op_outputs": {"Out": ["output_data"]},
-                            "op_attrs": dics[0],
-                        }
-                    ]
-                    ops = self.generate_op_config(ops_config)
-
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={},
-                        inputs={
-                            "input1_data": TensorConfig(
-                                data_gen=partial(generate_input, input1_shape)
-                            ),
-                            "input2_data": TensorConfig(
-                                data_gen=partial(generate_input, input2_shape)
-                            ),
-                        },
-                        outputs=["output_data"],
-                    )
-
-                    yield program_config
+        batch_list = [10, 11, 12, 13, 14, 15]
+        trans_x_list = [False]
+        trans_y_list = [False]
+        grid = [batch_list, trans_x_list, trans_y_list]
+        for batch, trans_x, trans_y in itertools.product(*grid):
+            input1_shape = [batch, 64, 350, 75]
+            input2_shape = [75, 25]
+            dics = [{'trans_x': trans_x, 'trans_y': trans_y}]
+            ops_config = [
+                {
+                    'op_type': 'matmul_v2',
+                    'op_inputs': {'X': ['input1_data'], 'Y': ['input2_data']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input1_data': TensorConfig(
+                        data_gen=lambda: generate_input(input1_shape)
+                    ),
+                    'input2_data': TensorConfig(
+                        data_gen=lambda: generate_input(input2_shape)
+                    ),
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -97,10 +93,12 @@ class TrtConvertMatmulTest_dynamic(TrtLayerAutoScanTest):
             tol_half = 4e-3
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 3), (tol_fp32, tol_fp32)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), (tol_half, tol_half)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 3), (tol_fp32, tol_fp32))
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 3), (tol_half, tol_half))
 
     def add_skip_trt_case(self):
         pass
@@ -111,49 +109,44 @@ class TrtConvertMatmulTest_dynamic(TrtLayerAutoScanTest):
 
 
 class TrtConvertMatmulTest_dynamic2(TrtLayerAutoScanTest):
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input(shape):
             return np.random.random(shape).astype(np.float32)
 
-        for batch in [10, 11, 12, 13, 14, 15]:
-            for trans_x in [False]:
-                for trans_y in [False]:
-                    input1_shape = [60, 40]
-                    input2_shape = [batch, 40, 90]
-                    dics = [
-                        {
-                            "trans_x": trans_x,
-                            "trans_y": trans_y,
-                        }
-                    ]
-                    ops_config = [
-                        {
-                            "op_type": "matmul_v2",
-                            "op_inputs": {
-                                "X": ["input1_data"],
-                                "Y": ["input2_data"],
-                            },
-                            "op_outputs": {"Out": ["output_data"]},
-                            "op_attrs": dics[0],
-                        }
-                    ]
-                    ops = self.generate_op_config(ops_config)
-
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={},
-                        inputs={
-                            "input1_data": TensorConfig(
-                                data_gen=partial(generate_input, input1_shape)
-                            ),
-                            "input2_data": TensorConfig(
-                                data_gen=partial(generate_input, input2_shape)
-                            ),
-                        },
-                        outputs=["output_data"],
-                    )
-
-                    yield program_config
+        batch_list = [10, 11, 12, 13, 14, 15]
+        trans_x_list = [False]
+        trans_y_list = [False]
+        grid = [batch_list, trans_x_list, trans_y_list]
+        for batch, trans_x, trans_y in itertools.product(*grid):
+            input1_shape = [60, 40]
+            input2_shape = [batch, 40, 90]
+            dics = [{'trans_x': trans_x, 'trans_y': trans_y}]
+            ops_config = [
+                {
+                    'op_type': 'matmul_v2',
+                    'op_inputs': {'X': ['input1_data'], 'Y': ['input2_data']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input1_data': TensorConfig(
+                        data_gen=lambda: generate_input(input1_shape)
+                    ),
+                    'input2_data': TensorConfig(
+                        data_gen=lambda: generate_input(input2_shape)
+                    ),
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -183,10 +176,12 @@ class TrtConvertMatmulTest_dynamic2(TrtLayerAutoScanTest):
             tol_half = 4e-3
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 3), (tol_fp32, tol_fp32)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), (tol_half, tol_half)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 3), (tol_fp32, tol_fp32))
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 3), (tol_half, tol_half))
 
     def add_skip_trt_case(self):
         pass
@@ -197,6 +192,9 @@ class TrtConvertMatmulTest_dynamic2(TrtLayerAutoScanTest):
 
 
 class TrtConvertMatmulTest_dynamic3(TrtLayerAutoScanTest):
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input(shape):
             return np.random.random(shape).astype(np.float32)
@@ -204,68 +202,51 @@ class TrtConvertMatmulTest_dynamic3(TrtLayerAutoScanTest):
         # case0: mat * vec
         # case1: vec * mat
         # case2: vec * vec
-        for case in [0, 1, 2]:
-            for batch in range(20, 23):
-                for trans_x in [False, True]:
-                    for trans_y in [False, True]:
-                        self.case = case
-                        input1_shape = []
-                        input2_shape = []
-                        if case == 0:
-                            input1_shape = [batch, 50]
-                            input2_shape = [50]
-                        elif case == 1:
-                            input1_shape = [50]
-                            input2_shape = [50, batch]
-                        elif case == 2:
-                            input1_shape = [50]
-                            input2_shape = [50]
-                        if case == 0 or case == 1:
-                            dics = [
-                                {
-                                    "trans_x": False,
-                                    "trans_y": False,
-                                }
-                            ]
-                        elif case == 2:
-                            dics = [
-                                {
-                                    "trans_x": trans_x,
-                                    "trans_y": trans_y,
-                                }
-                            ]
-                        ops_config = [
-                            {
-                                "op_type": "matmul_v2",
-                                "op_inputs": {
-                                    "X": ["input1_data"],
-                                    "Y": ["input2_data"],
-                                },
-                                "op_outputs": {"Out": ["output_data"]},
-                                "op_attrs": dics[0],
-                            }
-                        ]
-                        ops = self.generate_op_config(ops_config)
-
-                        program_config = ProgramConfig(
-                            ops=ops,
-                            weights={},
-                            inputs={
-                                "input1_data": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input, input1_shape
-                                    )
-                                ),
-                                "input2_data": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input, input2_shape
-                                    )
-                                ),
-                            },
-                            outputs=["output_data"],
-                        )
-
-                        yield program_config
+        case_list = [0, 1, 2]
+        batch_list = range(20, 23)
+        trans_x_list = [False, True]
+        trans_y_list = [False, True]
+        grid = [case_list, batch_list, trans_x_list, trans_y_list]
+        for case, batch, trans_x, trans_y in itertools.product(*grid):
+            self.case = case
+            input1_shape = []
+            input2_shape = []
+            if case == 0:
+                input1_shape = [batch, 50]
+                input2_shape = [50]
+            elif case == 1:
+                input1_shape = [50]
+                input2_shape = [50, batch]
+            elif case == 2:
+                input1_shape = [50]
+                input2_shape = [50]
+            if case == 0 or case == 1:
+                dics = [{'trans_x': False, 'trans_y': False}]
+            elif case == 2:
+                dics = [{'trans_x': trans_x, 'trans_y': trans_y}]
+            ops_config = [
+                {
+                    'op_type': 'matmul_v2',
+                    'op_inputs': {'X': ['input1_data'], 'Y': ['input2_data']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input1_data': TensorConfig(
+                        data_gen=lambda: generate_input(input1_shape)
+                    ),
+                    'input2_data': TensorConfig(
+                        data_gen=lambda: generate_input(input2_shape)
+                    ),
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -312,10 +293,12 @@ class TrtConvertMatmulTest_dynamic3(TrtLayerAutoScanTest):
                 }
 
         generate_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 3), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), (4e-3, 4e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 3), (1e-05, 1e-05))
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 3), (4e-03, 4e-03))
 
     def add_skip_trt_case(self):
         pass

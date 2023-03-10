@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import unittest
 import numpy as np
 import paddle.inference as paddle_infer
@@ -24,6 +25,9 @@ from typing import Optional, List, Callable, Dict, Any, Set
 class TrtConvertDropoutTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input1(dims, batch, attrs: List[Dict[str, Any]]):
@@ -36,57 +40,58 @@ class TrtConvertDropoutTest(TrtLayerAutoScanTest):
             else:
                 return np.ones([batch, 3, 64, 64]).astype(np.float32)
 
-        for dims in [1, 2, 3, 4]:
-            for batch in [1, 2, 4]:
-                for fix_seed in [False, True]:
-                    for dropout_implementation in [
-                        "downgrade_in_infer",
-                        "upscale_in_train",
-                    ]:
-                        for dropout_prob in [np.random.random()]:
-                            for seed in [0, 64, 128, 512]:
-                                self.dims = dims
-                                dics = [
-                                    {
-                                        "fix_seed": fix_seed,
-                                        "dropout_implementation": dropout_implementation,
-                                        "dropout_prob": dropout_prob,
-                                        "seed": seed,
-                                        "is_test": True,
-                                    }
-                                ]
-
-                                ops_config = [
-                                    {
-                                        "op_type": "dropout",
-                                        "op_inputs": {
-                                            "X": ["input_data"],
-                                        },
-                                        "op_outputs": {
-                                            "Out": ["dropout_output_data"]
-                                        },
-                                        "op_attrs": dics[0],
-                                    }
-                                ]
-                                ops = self.generate_op_config(ops_config)
-
-                                program_config = ProgramConfig(
-                                    ops=ops,
-                                    weights={},
-                                    inputs={
-                                        "input_data": TensorConfig(
-                                            data_gen=partial(
-                                                generate_input1,
-                                                dims,
-                                                batch,
-                                                dics,
-                                            )
-                                        )
-                                    },
-                                    outputs=["dropout_output_data"],
-                                )
-
-                                yield program_config
+        dims_list = [1, 2, 3, 4]
+        batch_list = [1, 2, 4]
+        fix_seed_list = [False, True]
+        dropout_implementation_list = ['downgrade_in_infer', 'upscale_in_train']
+        dropout_prob_list = [np.random.random()]
+        seed_list = [0, 64, 128, 512]
+        grid = [
+            dims_list,
+            batch_list,
+            fix_seed_list,
+            dropout_implementation_list,
+            dropout_prob_list,
+            seed_list,
+        ]
+        for (
+            dims,
+            batch,
+            fix_seed,
+            dropout_implementation,
+            dropout_prob,
+            seed,
+        ) in itertools.product(*grid):
+            self.dims = dims
+            dics = [
+                {
+                    'fix_seed': fix_seed,
+                    'dropout_implementation': dropout_implementation,
+                    'dropout_prob': dropout_prob,
+                    'seed': seed,
+                    'is_test': True,
+                }
+            ]
+            ops_config = [
+                {
+                    'op_type': 'dropout',
+                    'op_inputs': {'X': ['input_data']},
+                    'op_outputs': {'Out': ['dropout_output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1(dims, batch, dics)
+                    )
+                },
+                outputs=['dropout_output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -134,25 +139,36 @@ class TrtConvertDropoutTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def add_skip_trt_case(self):
         pass
