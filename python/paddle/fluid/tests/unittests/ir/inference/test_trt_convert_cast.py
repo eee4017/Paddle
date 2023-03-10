@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import unittest
 import numpy as np
 import paddle.inference as paddle_infer
@@ -37,54 +38,55 @@ class TrtConvertCastTest(TrtLayerAutoScanTest):
             return False
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input(dtype):
             return np.ones([1, 3, 64, 64]).astype(dtype)
 
-        for in_dtype in [np.bool_, np.int32, np.float32, np.float64]:
-            for out_dtype in [np.bool_, np.int32, np.float32, np.float64]:
-                dics = [
-                    {
-                        "in_dtype": convert_np_dtype_to_dtype_(in_dtype),
-                        "out_dtype": convert_np_dtype_to_dtype_(out_dtype),
-                    },
-                    {
-                        "in_dtype": convert_np_dtype_to_dtype_(out_dtype),
-                        "out_dtype": convert_np_dtype_to_dtype_(in_dtype),
-                    },
-                ]
-
-                ops_config = [
-                    {
-                        "op_type": "cast",
-                        "op_inputs": {"X": ["input_data"]},
-                        "op_outputs": {"Out": ["cast_output_data0"]},
-                        "op_attrs": dics[0],
-                        "op_outputs_dtype": {"cast_output_data0": out_dtype},
-                    },
-                    {
-                        "op_type": "cast",
-                        "op_inputs": {"X": ["cast_output_data0"]},
-                        "op_outputs": {"Out": ["cast_output_data1"]},
-                        "op_attrs": dics[1],
-                        "op_outputs_dtype": {"cast_output_data1": in_dtype},
-                    },
-                ]
-
-                ops = self.generate_op_config(ops_config)
-
-                program_config = ProgramConfig(
-                    ops=ops,
-                    weights={},
-                    inputs={
-                        "input_data": TensorConfig(
-                            data_gen=partial(generate_input, in_dtype)
-                        )
-                    },
-                    outputs=["cast_output_data1"],
-                )
-
-                yield program_config
+        in_dtype_list = [np.bool_, np.int32, np.float32, np.float64]
+        out_dtype_list = [np.bool_, np.int32, np.float32, np.float64]
+        grid = [in_dtype_list, out_dtype_list]
+        for in_dtype, out_dtype in itertools.product(*grid):
+            dics = [
+                {
+                    'in_dtype': convert_np_dtype_to_dtype_(in_dtype),
+                    'out_dtype': convert_np_dtype_to_dtype_(out_dtype),
+                },
+                {
+                    'in_dtype': convert_np_dtype_to_dtype_(out_dtype),
+                    'out_dtype': convert_np_dtype_to_dtype_(in_dtype),
+                },
+            ]
+            ops_config = [
+                {
+                    'op_type': 'cast',
+                    'op_inputs': {'X': ['input_data']},
+                    'op_outputs': {'Out': ['cast_output_data0']},
+                    'op_attrs': dics[0],
+                    'op_outputs_dtype': {'cast_output_data0': out_dtype},
+                },
+                {
+                    'op_type': 'cast',
+                    'op_inputs': {'X': ['cast_output_data0']},
+                    'op_outputs': {'Out': ['cast_output_data1']},
+                    'op_attrs': dics[1],
+                    'op_outputs_dtype': {'cast_output_data1': in_dtype},
+                },
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input(in_dtype)
+                    )
+                },
+                outputs=['cast_output_data1'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -108,25 +110,36 @@ class TrtConvertCastTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-2
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-02,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-2
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-02,
+            )
 
     def test(self):
         self.run_test()

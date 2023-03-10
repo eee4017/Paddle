@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
+import itertools
 from program_config import TensorConfig, ProgramConfig
 import numpy as np
 import paddle.inference as paddle_infer
@@ -26,40 +27,41 @@ class TrtConvertLeakyReluTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16, np.int8]
+
     def sample_program_configs(self):
         def generate_input1(shape):
             return np.random.random(shape).astype(np.float32)
 
-        for batch in [1, 2]:
-            for shape in [[batch, 64], [batch, 32, 64], [batch, 8, 32, 32]]:
-                self.input_dim = len(shape)
-                for alpha in [0.02, 1.0, 100.0, -1.0, 0.0]:
-                    dics = [{"alpha": alpha}]
-                    ops_config = [
-                        {
-                            "op_type": "leaky_relu",
-                            "op_inputs": {
-                                "X": ["input_data"],
-                            },
-                            "op_outputs": {
-                                "Out": ["y_data"],
-                            },
-                            "op_attrs": dics[0],
-                        }
-                    ]
-                    ops = self.generate_op_config(ops_config)
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={},
-                        inputs={
-                            "input_data": TensorConfig(
-                                data_gen=partial(generate_input1, shape)
-                            )
-                        },
-                        outputs=["y_data"],
+        batch_list = [1, 2]
+        shape_list = [[64], [32, 64], [8, 32, 32]]
+        alpha_list = [0.02, 1.0, 100.0, -1.0, 0.0]
+        grid = [batch_list, shape_list, alpha_list]
+        for batch, shape, alpha in itertools.product(*grid):
+            shape = [batch, *shape]
+            self.input_dim = len(shape)
+            dics = [{'alpha': alpha}]
+            ops_config = [
+                {
+                    'op_type': 'leaky_relu',
+                    'op_inputs': {'X': ['input_data']},
+                    'op_outputs': {'Out': ['y_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1(shape)
                     )
-
-                    yield program_config
+                },
+                outputs=['y_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -100,33 +102,50 @@ class TrtConvertLeakyReluTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-        self.trt_param.precision = paddle_infer.PrecisionType.Int8
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
+        if program_config.get_input_type() == np.int8:
+            self.trt_param.precision = paddle_infer.PrecisionType.Int8
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
-        self.trt_param.precision = paddle_infer.PrecisionType.Int8
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
+        if program_config.get_input_type() == np.int8:
+            self.trt_param.precision = paddle_infer.PrecisionType.Int8
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def test(self):
         self.run_test()

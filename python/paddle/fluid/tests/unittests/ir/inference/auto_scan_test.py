@@ -147,8 +147,7 @@ class AutoScanTest(unittest.TestCase):
         for out_name, o_name in zip(
             prog_config.outputs, predictor.get_output_names()
         ):
-            result[out_name] = predictor.get_output_handle(
-                o_name).copy_to_cpu()
+            result[out_name] = predictor.get_output_handle(o_name).copy_to_cpu()
         return result
 
     @abc.abstractmethod
@@ -162,7 +161,7 @@ class AutoScanTest(unittest.TestCase):
         for key, arr in tensor.items():
             self.assertTrue(
                 baseline[key].shape == arr.shape,
-                f"The output shapes are not equal, the baseline shape is {baseline[key].shape}, but got {str(arr.shape)}"
+                f"The output shapes are not equal, the baseline shape is {baseline[key].shape}, but got {str(arr.shape)}",
             )
             diff = abs(baseline[key] - arr)
             np.testing.assert_allclose(
@@ -170,7 +169,7 @@ class AutoScanTest(unittest.TestCase):
                 baseline[key],
                 rtol=rtol,
                 atol=atol,
-                err_msg=f"Output has diff, Maximum absolute error: {np.amax(diff)}"
+                err_msg=f"Output has diff, Maximum absolute error: {np.amax(diff)}",
             )
 
     @abc.abstractmethod
@@ -319,9 +318,7 @@ class MkldnnAutoScanTest(AutoScanTest):
                     self.fail_log(
                         f"predictor_config: {self.inference_config_str(pred_config)}"
                     )
-                    self.fail_log(
-                        f"\033[1;31m ERROR INFO: {e}\033[0m"
-                    )
+                    self.fail_log(f"\033[1;31m ERROR INFO: {e}\033[0m")
                     if not ignore_flag:
                         status = False
                     continue
@@ -538,9 +535,7 @@ class PassAutoScanTest(AutoScanTest):
                     self.fail_log(
                         f"predictor_config: {self.inference_config_str(pred_config)}"
                     )
-                    self.fail_log(
-                        f"\033[1;31m ERROR INFO: {e}\033[0m"
-                    )
+                    self.fail_log(f"\033[1;31m ERROR INFO: {e}\033[0m")
                     if not ignore_flag:
                         status = False
                     continue
@@ -662,6 +657,9 @@ class TrtLayerAutoScanTest(AutoScanTest):
                 )
         return config
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32]
+
     def assert_tensors_near(
         self,
         atol: float,
@@ -673,10 +671,9 @@ class TrtLayerAutoScanTest(AutoScanTest):
             self.assertEqual(
                 baseline[key].shape,
                 arr.shape,
-                f"The output shapes are not equal, the baseline shape is {baseline[key].shape}, but got {str(arr.shape)}"
+                f"The output shapes are not equal, the baseline shape is {baseline[key].shape}, but got {str(arr.shape)}",
             )
-            np.testing.assert_allclose(
-                arr, baseline[key], rtol=rtol, atol=atol)
+            np.testing.assert_allclose(arr, baseline[key], rtol=rtol, atol=atol)
 
     def assert_op_size(self, trt_engine_num, paddle_op_num):
         last_passed_program = os.path.join(
@@ -743,105 +740,105 @@ class TrtLayerAutoScanTest(AutoScanTest):
                     "lod": tensor_config.lod,
                 }
 
-            results: List[Dict[str, np.ndarray]] = []
             if not skip_baseline:
-                # baseline: gpu run
+                # baseline: gpu run, we only test float32
                 gpu_config = self.create_inference_config(use_trt=False)
-                results.append(
-                    self.run_test_config(
-                        model, params, prog_config, gpu_config, feed_data
-                    )
+                baseline_result = self.run_test_config(
+                    model,
+                    params,
+                    prog_config.set_input_type(np.float32),
+                    gpu_config,
+                    feed_data,
                 )
                 self.success_log(f"basline program_config: {prog_config}")
 
-            for (
-                pred_config,
-                nodes_num,
-                threshold,
-            ) in self.sample_predictor_configs(prog_config):
+            for input_type in self.get_avalible_input_type():
+                prog_config = prog_config.set_input_type(input_type)
+                for (
+                    pred_config,
+                    nodes_num,
+                    threshold,
+                ) in self.sample_predictor_configs(prog_config):
+                    if os.path.exists(self.cache_dir):
+                        shutil.rmtree(self.cache_dir)
 
-                if os.path.exists(self.cache_dir):
-                    shutil.rmtree(self.cache_dir)
+                    if isinstance(threshold, float):
+                        atol = threshold
+                        rtol = 1e-8
+                    elif isinstance(threshold, list) or isinstance(
+                        threshold, tuple
+                    ):
+                        atol = threshold[0]
+                        rtol = threshold[1]
+                    else:
+                        raise NotImplementedError
 
-                if isinstance(threshold, float):
-                    atol = threshold
-                    rtol = 1e-8
-                elif isinstance(threshold, list) or isinstance(
-                    threshold, tuple
-                ):
-                    atol = threshold[0]
-                    rtol = threshold[1]
-                else:
-                    raise NotImplementedError
+                    if (
+                        pred_config.tensorrt_precision_mode()
+                        != paddle_infer.PrecisionType.Int8
+                        and quant
+                    ):
+                        continue
+                    if (
+                        pred_config.tensorrt_precision_mode()
+                        == paddle_infer.PrecisionType.Int8
+                        and not quant
+                    ):
+                        continue
 
-                if (
-                    pred_config.tensorrt_precision_mode()
-                    != paddle_infer.PrecisionType.Int8
-                    and quant
-                ):
-                    continue
-                if (
-                    pred_config.tensorrt_precision_mode()
-                    == paddle_infer.PrecisionType.Int8
-                    and not quant
-                ):
-                    continue
+                    ignore_flag = False
+                    for teller, reason, note in self.ignore_cases:
+                        if teller(prog_config, pred_config):
+                            ignore_flag = True
+                            if reason == IgnoreReasons.TRT_NOT_IMPLEMENTED:
+                                self.ignore_log(
+                                    f"[TRT_NOT_IMPLEMENTED] {note} vs {self.inference_config_str(pred_config)}"
+                                )
+                            elif reason == IgnoreReasons.TRT_NOT_SUPPORT:
+                                self.ignore_log(
+                                    f"[TRT_NOT_SUPPORT] {note} vs {self.inference_config_str(pred_config)}"
+                                )
+                            else:
+                                raise NotImplementedError
+                            break
 
-                ignore_flag = False
-                for teller, reason, note in self.ignore_cases:
-                    if teller(prog_config, pred_config):
-                        ignore_flag = True
-                        if reason == IgnoreReasons.TRT_NOT_IMPLEMENTED:
-                            self.ignore_log(
-                                f"[TRT_NOT_IMPLEMENTED] {note} vs {self.inference_config_str(pred_config)}"
-                            )
-                        elif reason == IgnoreReasons.TRT_NOT_SUPPORT:
-                            self.ignore_log(
-                                f"[TRT_NOT_SUPPORT] {note} vs {self.inference_config_str(pred_config)}"
-                            )
-                        else:
-                            raise NotImplementedError
-                        break
+                    if ignore_flag:
+                        continue
 
-                if ignore_flag:
-                    continue
-
-                try:
-                    pred_config_deserialize = paddle_infer.Config(pred_config)
-                    results.append(
-                        self.run_test_config(
+                    try:
+                        pred_config_deserialize = paddle_infer.Config(
+                            pred_config
+                        )
+                        trt_result = self.run_test_config(
                             model, params, prog_config, pred_config, feed_data
                         )
-                    )
-                    self.assert_tensors_near(
-                        atol, rtol, results[-1], results[0]
-                    )
-                    trt_engine_num, paddle_op_num = nodes_num
-                    self.assert_op_size(trt_engine_num, paddle_op_num)
-
-                    # deserialize test
-                    if trt_engine_num > 0:
-                        self.run_test_config(
-                            model,
-                            params,
-                            prog_config,
-                            pred_config_deserialize,
-                            feed_data,
+                        self.assert_tensors_near(
+                            atol, rtol, trt_result, baseline_result
                         )
+                        trt_engine_num, paddle_op_num = nodes_num
+                        self.assert_op_size(trt_engine_num, paddle_op_num)
 
-                    self.success_log(f"program_config: {prog_config}")
-                    self.success_log(
-                        f"predictor_config: {self.inference_config_str(pred_config)}"
-                    )
-                except Exception as e:
-                    self.fail_log(f"program_config: {prog_config}")
-                    self.fail_log(
-                        f"predictor_config: {self.inference_config_str(pred_config)}"
-                    )
-                    self.fail_log(
-                        f"\033[1;31m ERROR INFO: {e}\033[0m"
-                    )
-                    all_passes = False
+                        # deserialize test
+                        if trt_engine_num > 0:
+                            self.run_test_config(
+                                model,
+                                params,
+                                prog_config,
+                                pred_config_deserialize,
+                                feed_data,
+                            )
+
+                        self.success_log(f"program_config: {prog_config}")
+                        self.success_log(
+                            f"predictor_config: {self.inference_config_str(pred_config)}"
+                        )
+                    except Exception as e:
+                        self.fail_log(f"program_config: {prog_config}")
+                        self.fail_log(
+                            f"predictor_config: {self.inference_config_str(pred_config)}"
+                        )
+                        self.fail_log(f"\033[1;31m ERROR INFO: {e}\033[0m")
+                        all_passes = False
 
         self.assertTrue(all_passes)
 

@@ -14,6 +14,7 @@
 
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 from program_config import TensorConfig, ProgramConfig
+import itertools
 import unittest
 import numpy as np
 import paddle.inference as paddle_infer
@@ -30,12 +31,16 @@ def generate_input(shape, is_pow=False):
 
 
 def generate_weight(shape, is_pow=False, is_div=False):
-    np_data = np.random.randn(*shape).astype(np.float32)
     if is_pow:
+        # notice that the base should not be negative or it might cause undefined behavior (negative ^ float may be a complex number)
+        np_data = np.random.random(shape).astype(np.float32)
         return np_data.round(1)
     if is_div:
+        np_data = np.random.random(shape).astype(np.float32)
         return np_data + 1.0
-    return np_data
+    else:
+        np_data = np.random.randn(*shape).astype(np.float32)
+        return np_data
 
 
 # This is the special test case with weight including batch dimension
@@ -44,58 +49,54 @@ class TrtConvertElementwiseTest_one_input_special_case0(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
-
-        for batch in [1, 4]:
-            for shape in [[batch, 32, 4, 4]]:
-                for op_type in [
-                    "elementwise_add",
-                    "elementwise_mul",
-                    "elementwise_sub",
-                    "elementwise_div",
-                    "elementwise_pow",
-                    "elementwise_min",
-                    "elementwise_max",
-                ]:
-                    is_pow = op_type == "elementwise_pow"
-                    for axis in [-1]:
-                        self.dims = len(shape)
-                        dics = [{"axis": axis}]
-                        ops_config = [
-                            {
-                                "op_type": op_type,
-                                "op_inputs": {
-                                    "X": ["input_data"],
-                                    "Y": ["weight"],
-                                },
-                                "op_outputs": {"Out": ["output_data"]},
-                                "op_attrs": dics[0],
-                            }
-                        ]
-                        ops = self.generate_op_config(ops_config)
-
-                        program_config = ProgramConfig(
-                            ops=ops,
-                            weights={
-                                "weight": TensorConfig(
-                                    data_gen=partial(
-                                        generate_weight,
-                                        (1, 32, 1, 1),
-                                        is_pow=is_pow,
-                                    )
-                                )
-                            },
-                            inputs={
-                                "input_data": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input, shape, is_pow=is_pow
-                                    )
-                                ),
-                            },
-                            outputs=["output_data"],
+        batch_list = [1, 4]
+        shape_list = [[32, 4, 4]]
+        op_type_list = [
+            'elementwise_add',
+            'elementwise_mul',
+            'elementwise_sub',
+            'elementwise_div',
+            'elementwise_pow',
+            'elementwise_min',
+            'elementwise_max',
+        ]
+        grid = [batch_list, shape_list, op_type_list]
+        for batch, shape, op_type in itertools.product(*grid):
+            shape = [batch, *shape]
+            is_pow = op_type == 'elementwise_pow'
+            axis = -1
+            self.dims = len(shape)
+            dics = [{'axis': axis}]
+            ops_config = [
+                {
+                    'op_type': op_type,
+                    'op_inputs': {'X': ['input_data'], 'Y': ['weight']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'weight': TensorConfig(
+                        data_gen=partial(
+                            generate_weight, (1, 32, 1, 1), is_pow=is_pow
                         )
-
-                        yield program_config
+                    )
+                },
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input(shape, is_pow=is_pow)
+                    )
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -127,25 +128,36 @@ class TrtConvertElementwiseTest_one_input_special_case0(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-05, 1e-05),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-05, 1e-05),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def add_skip_trt_case(self):
         pass
@@ -160,52 +172,50 @@ class TrtConvertElementwiseTest_one_input_special_case1(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
-
-        for shape in [[32]]:
-            for op_type in [
-                "elementwise_add",
-                "elementwise_mul",
-                "elementwise_sub",
-                "elementwise_div",
-                "elementwise_pow",
-                "elementwise_min",
-                "elementwise_max",
-            ]:
-                is_pow = op_type == "elementwise_pow"
-                for axis in [-1]:
-                    self.dims = len(shape)
-                    dics = [{"axis": axis}]
-                    ops_config = [
-                        {
-                            "op_type": op_type,
-                            "op_inputs": {"X": ["input_data"], "Y": ["weight"]},
-                            "op_outputs": {"Out": ["output_data"]},
-                            "op_attrs": dics[0],
-                        }
-                    ]
-                    ops = self.generate_op_config(ops_config)
-
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={
-                            "weight": TensorConfig(
-                                data_gen=partial(
-                                    generate_weight, (1,), is_pow=is_pow
-                                )
-                            )
-                        },
-                        inputs={
-                            "input_data": TensorConfig(
-                                data_gen=partial(
-                                    generate_input, shape, is_pow=is_pow
-                                )
-                            ),
-                        },
-                        outputs=["output_data"],
+        shape_list = [[32]]
+        op_type_list = [
+            'elementwise_add',
+            'elementwise_mul',
+            'elementwise_sub',
+            'elementwise_div',
+            'elementwise_pow',
+            'elementwise_min',
+            'elementwise_max',
+        ]
+        grid = [shape_list, op_type_list]
+        for shape, op_type in itertools.product(*grid):
+            is_pow = op_type == 'elementwise_pow'
+            axis = -1
+            self.dims = len(shape)
+            dics = [{'axis': axis}]
+            ops_config = [
+                {
+                    'op_type': op_type,
+                    'op_inputs': {'X': ['input_data'], 'Y': ['weight']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'weight': TensorConfig(
+                        data_gen=partial(generate_weight, (1,), is_pow=is_pow)
                     )
-
-                    yield program_config
+                },
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input(shape, is_pow=is_pow)
+                    )
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -231,25 +241,36 @@ class TrtConvertElementwiseTest_one_input_special_case1(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-05, 1e-05),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-05, 1e-05),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def add_skip_trt_case(self):
         pass
@@ -263,65 +284,56 @@ class TrtConvertElementwiseTest_one_input(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
 
-        for batch in [1, 4]:
-            for shape in [
-                [32],
-                [batch, 32],
-                [batch, 32, 8],
-                [batch, 32, 8, 4],
-            ]:
-                for op_type in [
-                    "elementwise_add",
-                    "elementwise_mul",
-                    "elementwise_sub",
-                    "elementwise_div",
-                    "elementwise_pow",
-                    "elementwise_min",
-                    "elementwise_max",
-                ]:
-                    is_pow = op_type == "elementwise_pow"
-                    is_div = op_type == "elementwise_div"
-                    for axis in [-1 if len(shape) == 1 else 1]:
-                        self.dims = len(shape)
-                        dics = [{"axis": axis}]
-                        ops_config = [
-                            {
-                                "op_type": op_type,
-                                "op_inputs": {
-                                    "X": ["input_data"],
-                                    "Y": ["weight"],
-                                },
-                                "op_outputs": {"Out": ["output_data"]},
-                                "op_attrs": dics[0],
-                            }
-                        ]
-                        ops = self.generate_op_config(ops_config)
-
-                        program_config = ProgramConfig(
-                            ops=ops,
-                            weights={
-                                "weight": TensorConfig(
-                                    data_gen=partial(
-                                        generate_weight,
-                                        (32,),
-                                        is_pow=is_pow,
-                                        is_div=is_div,
-                                    )
-                                )
-                            },
-                            inputs={
-                                "input_data": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input, shape, is_pow=is_pow
-                                    )
-                                ),
-                            },
-                            outputs=["output_data"],
+        batch_list = [1, 4]
+        shape_list = [[32], [32, 8], [32, 8, 4]]
+        op_type_list = [
+            'elementwise_add',
+            'elementwise_mul',
+            'elementwise_sub',
+            'elementwise_div',
+            'elementwise_pow',
+            'elementwise_min',
+            'elementwise_max',
+        ]
+        grid = [batch_list, shape_list, op_type_list]
+        for batch, shape, op_type in itertools.product(*grid):
+            is_pow = op_type == 'elementwise_pow'
+            is_div = op_type == 'elementwise_div'
+            shape = [batch, *shape]
+            axis = -1 if len(shape) == 1 else 1
+            self.dims = len(shape)
+            dics = [{'axis': axis}]
+            ops_config = [
+                {
+                    'op_type': op_type,
+                    'op_inputs': {'X': ['input_data'], 'Y': ['weight']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'weight': TensorConfig(
+                        data_gen=partial(
+                            generate_weight, (32,), is_pow=is_pow, is_div=is_div
                         )
-
-                        yield program_config
+                    )
+                },
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input(shape, is_pow=is_pow)
+                    )
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -367,25 +379,36 @@ class TrtConvertElementwiseTest_one_input(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-05, 1e-05),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-05, 1e-05),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def add_skip_trt_case(self):
         pass
@@ -401,54 +424,50 @@ class TrtConvertElementwiseTest_two_input_without_broadcast(
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
 
-        for shape in [[4], [4, 32], [2, 32, 16], [1, 8, 16, 32]]:
-            for op_type in [
-                "elementwise_add",
-                "elementwise_mul",
-                "elementwise_sub",
-                "elementwise_div",
-                "elementwise_pow",
-                "elementwise_min",
-                "elementwise_max",
-            ]:
-                is_pow = op_type == "elementwise_pow"
-                for axis in [0, -1]:
-                    self.dims = len(shape)
-                    dics = [{"axis": axis}]
-                    ops_config = [
-                        {
-                            "op_type": op_type,
-                            "op_inputs": {
-                                "X": ["input_data1"],
-                                "Y": ["input_data2"],
-                            },
-                            "op_outputs": {"Out": ["output_data"]},
-                            "op_attrs": dics[0],
-                        }
-                    ]
-                    ops = self.generate_op_config(ops_config)
-
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={},
-                        inputs={
-                            "input_data1": TensorConfig(
-                                data_gen=partial(
-                                    generate_input, shape, is_pow=is_pow
-                                )
-                            ),
-                            "input_data2": TensorConfig(
-                                data_gen=partial(
-                                    generate_input, shape, is_pow=is_pow
-                                )
-                            ),
-                        },
-                        outputs=["output_data"],
-                    )
-
-                    yield program_config
+        shape_list = [[4], [4, 32], [2, 32, 16], [1, 8, 16, 32]]
+        op_type_list = [
+            'elementwise_add',
+            'elementwise_mul',
+            'elementwise_sub',
+            'elementwise_div',
+            'elementwise_pow',
+            'elementwise_min',
+            'elementwise_max',
+        ]
+        axis_list = [0, -1]
+        grid = [shape_list, op_type_list, axis_list]
+        for shape, op_type, axis in itertools.product(*grid):
+            is_pow = op_type == 'elementwise_pow'
+            self.dims = len(shape)
+            dics = [{'axis': axis}]
+            ops_config = [
+                {
+                    'op_type': op_type,
+                    'op_inputs': {'X': ['input_data1'], 'Y': ['input_data2']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data1': TensorConfig(
+                        data_gen=lambda: generate_input(shape, is_pow=is_pow)
+                    ),
+                    'input_data2': TensorConfig(
+                        data_gen=lambda: generate_input(shape, is_pow=is_pow)
+                    ),
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -523,21 +542,28 @@ class TrtConvertElementwiseTest_two_input_without_broadcast(
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-05, 1e-05),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 3), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 3), (1e-05, 1e-05))
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 3), (1e-03, 1e-03))
 
     def add_skip_trt_case(self):
         pass
@@ -554,6 +580,9 @@ class TrtConvertElementwiseTest_two_input_with_broadcast(TrtLayerAutoScanTest):
             return False
 
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
 
@@ -587,60 +616,58 @@ class TrtConvertElementwiseTest_two_input_with_broadcast(TrtLayerAutoScanTest):
             axis6_list,
         ]
 
-        for i in range(3):
-            input1_shape = input1_shape_list[i]
-            for j in range(6):
+        i_list = range(3)
+        j_list = range(6)
+        op_type_list = [
+            'elementwise_add',
+            'elementwise_mul',
+            'elementwise_sub',
+            'elementwise_div',
+            'elementwise_pow',
+            'elementwise_min',
+            'elementwise_max',
+        ]
+        k_list = range(2)
+        grid = [i_list, j_list, op_type_list, k_list]
+        for i, j, op_type, k in itertools.product(*grid):
+            if k < len(axis_list[j][i]):
+                axis = axis_list[j][i][k]
+                input1_shape = input1_shape_list[i]
                 input2_shape = input2_shape_list[j][i]
-                for op_type in [
-                    "elementwise_add",
-                    "elementwise_mul",
-                    "elementwise_sub",
-                    "elementwise_div",
-                    "elementwise_pow",
-                    "elementwise_min",
-                    "elementwise_max",
-                ]:
-                    is_pow = op_type == "elementwise_pow"
-                    for axis in axis_list[j][i]:
-                        self.shape1 = input1_shape
-                        self.shape2 = input2_shape
-                        dics = [{"axis": axis}]
-                        ops_config = [
-                            {
-                                "op_type": op_type,
-                                "op_inputs": {
-                                    "X": ["input_data1"],
-                                    "Y": ["input_data2"],
-                                },
-                                "op_outputs": {"Out": ["output_data"]},
-                                "op_attrs": dics[0],
-                            }
-                        ]
-                        ops = self.generate_op_config(ops_config)
-
-                        program_config = ProgramConfig(
-                            ops=ops,
-                            weights={},
-                            inputs={
-                                "input_data1": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input,
-                                        input1_shape,
-                                        is_pow=is_pow,
-                                    )
-                                ),
-                                "input_data2": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input,
-                                        input2_shape,
-                                        is_pow=is_pow,
-                                    )
-                                ),
-                            },
-                            outputs=["output_data"],
-                        )
-
-                        yield program_config
+                is_pow = op_type == 'elementwise_pow'
+                self.shape1 = input1_shape
+                self.shape2 = input2_shape
+                dics = [{'axis': axis}]
+                ops_config = [
+                    {
+                        'op_type': op_type,
+                        'op_inputs': {
+                            'X': ['input_data1'],
+                            'Y': ['input_data2'],
+                        },
+                        'op_outputs': {'Out': ['output_data']},
+                        'op_attrs': dics[0],
+                    }
+                ]
+                ops = self.generate_op_config(ops_config)
+                program_config = ProgramConfig(
+                    ops=ops,
+                    weights={},
+                    inputs={
+                        'input_data1': TensorConfig(
+                            data_gen=lambda: generate_input(
+                                input1_shape, is_pow=is_pow
+                            )
+                        ),
+                        'input_data2': TensorConfig(
+                            data_gen=lambda: generate_input(
+                                input2_shape, is_pow=is_pow
+                            )
+                        ),
+                    },
+                    outputs=['output_data'],
+                )
+                yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -687,10 +714,12 @@ class TrtConvertElementwiseTest_two_input_with_broadcast(TrtLayerAutoScanTest):
 
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 3), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 3), (1e-05, 1e-05))
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 3), (1e-03, 1e-03))
 
     def add_skip_trt_case(self):
         pass
@@ -704,6 +733,9 @@ class TrtConvertElementwiseTest_one_input_corner_case(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
 
         # use rand not randn to avoiding pow producing `NAN`
@@ -713,61 +745,50 @@ class TrtConvertElementwiseTest_one_input_corner_case(TrtLayerAutoScanTest):
                 weight_data = weight_data + 1.0
             return weight_data
 
-        for batch in [1, 2, 4]:
-            for shape in [
-                [32],
-                [batch, 32],
-                [batch, 32, 32],
-                [batch, 32, 16, 4],
-            ]:
-                for op_type in [
-                    "elementwise_add",
-                    "elementwise_mul",
-                    "elementwise_sub",
-                    "elementwise_div",
-                    "elementwise_pow",
-                    "elementwise_min",
-                    "elementwise_max",
-                ]:
-                    is_pow = op_type == "elementwise_pow"
-                    is_div = op_type == "elementwise_div"
-                    self.op_type = op_type
-                    for axis in [-1 if len(shape) == 1 else 1]:
-                        self.dims = len(shape)
-                        dics = [{"axis": axis}]
-                        ops_config = [
-                            {
-                                "op_type": op_type,
-                                "op_inputs": {
-                                    "X": ["weight"],
-                                    "Y": ["input_data"],
-                                },
-                                "op_outputs": {"Out": ["output_data"]},
-                                "op_attrs": dics[0],
-                            }
-                        ]
-                        ops = self.generate_op_config(ops_config)
-
-                        program_config = ProgramConfig(
-                            ops=ops,
-                            weights={
-                                "weight": TensorConfig(
-                                    data_gen=partial(
-                                        generate_weight_corner, is_div=is_div
-                                    )
-                                )
-                            },
-                            inputs={
-                                "input_data": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input, shape, is_pow=is_pow
-                                    )
-                                ),
-                            },
-                            outputs=["output_data"],
-                        )
-
-                        yield program_config
+        batch_list = [1, 2, 4]
+        shape_list = [[32], [32, 32], [32, 16, 4]]
+        op_type_list = [
+            'elementwise_add',
+            'elementwise_mul',
+            'elementwise_sub',
+            'elementwise_div',
+            'elementwise_pow',
+            'elementwise_min',
+            'elementwise_max',
+        ]
+        grid = [batch_list, shape_list, op_type_list]
+        for batch, shape, op_type in itertools.product(*grid):
+            shape = [batch, *shape]
+            axis = -1 if len(shape) == 1 else 1
+            is_pow = op_type == 'elementwise_pow'
+            is_div = op_type == 'elementwise_div'
+            self.op_type = op_type
+            self.dims = len(shape)
+            dics = [{'axis': axis}]
+            ops_config = [
+                {
+                    'op_type': op_type,
+                    'op_inputs': {'X': ['weight'], 'Y': ['input_data']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'weight': TensorConfig(
+                        data_gen=partial(generate_weight_corner, is_div=is_div)
+                    )
+                },
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input(shape, is_pow=is_pow)
+                    )
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -810,17 +831,20 @@ class TrtConvertElementwiseTest_one_input_corner_case(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (0, 3), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (0, 3), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (0, 3), (1e-05, 1e-05))
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (0, 3), (1e-03, 1e-03))
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 2), (1e-5, 1e-5)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 2), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 2), (1e-05, 1e-05))
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 2), (1e-03, 1e-03))
 
     def add_skip_trt_case(self):
         pass
