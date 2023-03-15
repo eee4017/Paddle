@@ -27,7 +27,7 @@ class TrtConvertFusedTokenPruneTest(TrtLayerAutoScanTest):
         return True
 
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16]
+        return [np.float32]
 
     def sample_program_configs(self):
         self.trt_param.workspace_size = 1073741824

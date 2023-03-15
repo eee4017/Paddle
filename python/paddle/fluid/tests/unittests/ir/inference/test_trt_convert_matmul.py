@@ -103,10 +103,10 @@ class TrtConvertMatmulTest_static(TrtLayerAutoScanTest):
         clear_dynamic_shape()
         if program_config.get_input_type() == np.float32:
             self.trt_param.precision = paddle_infer.PrecisionType.Float32
-            yield (self.create_inference_config(), (1, 3), 1e-05)
+            yield (self.create_inference_config(), (1, 3), (1e-05, 1e-05))
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
-            yield (self.create_inference_config(), (1, 3), 1e-03)
+            yield (self.create_inference_config(), (1, 3), (1e-03, 1e-03))
 
     def test(self):
         self.run_test()
@@ -127,6 +127,8 @@ class TrtConvertMatmulTest_dynamic(TrtLayerAutoScanTest):
         trans_y_list = [True]
         alpha_list = [0.3, 1.0]
         grid = [trans_x_list, trans_y_list, alpha_list]
+        input1_shape = [4, 4, 4]
+        input2_shape = [4, 4, 4]
         for trans_x, trans_y, alpha in itertools.product(*grid):
             dics = [
                 {
@@ -190,10 +192,10 @@ class TrtConvertMatmulTest_dynamic(TrtLayerAutoScanTest):
         generate_dynamic_shape(attrs)
         if program_config.get_input_type() == np.float32:
             self.trt_param.precision = paddle_infer.PrecisionType.Float32
-            yield (self.create_inference_config(), (1, 3), 1e-05)
+            yield (self.create_inference_config(), (1, 3), (1e-05, 1e-05))
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
-            yield (self.create_inference_config(), (1, 3), 1e-03)
+            yield (self.create_inference_config(), (1, 3), (1e-03, 1e-03))
 
     def add_skip_trt_case(self):
         pass
