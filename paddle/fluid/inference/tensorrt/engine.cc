@@ -112,11 +112,40 @@ void TensorRTEngine::FreezeNetwork() {
   if (enable_fp16) {
     bool support_fp16 = infer_builder_->platformHasFastFp16();
     infer_builder_config_->setFlag(nvinfer1::BuilderFlag::kFP16);
+    infer_builder_config_->setFlag(
+        nvinfer1::BuilderFlag::kOBEY_PRECISION_CONSTRAINTS);
     if (!support_fp16) {
       LOG(INFO) << "You specify FP16 mode, but the hardware do not support "
                    "FP16 speed up, use FP32 instead.";
     } else {
       LOG(INFO) << "Run Paddle-TRT FP16 mode";
+      bool is_all_fp32 = true;
+      for (int i = 0; i < network()->getNbLayers(); i++) {
+        auto layer = network()->getLayer(i);
+        for (int j = 0; j < layer->getNbInputs(); j++) {
+          auto t = layer->getInput(j);
+          if (t) {
+            is_all_fp32 &= (t->getType() == nvinfer1::DataType::kFLOAT ||
+                            t->getType() == nvinfer1::DataType::kHALF);
+          }
+        }
+        for (int j = 0; j < layer->getNbOutputs(); j++) {
+          auto t = layer->getOutput(j);
+          if (t) {
+            is_all_fp32 &= (t->getType() == nvinfer1::DataType::kFLOAT ||
+                            t->getType() == nvinfer1::DataType::kHALF);
+          }
+        }
+        if (is_all_fp32) {
+          LOG(INFO) << "Set " << layer->getName() << " into FP16";
+          layer->setPrecision(nvinfer1::DataType::kHALF);
+          for (int j = 0; j < layer->getNbOutputs(); j++) {
+            auto t = layer->getOutput(j);
+            if (t) layer->setOutputType(j, nvinfer1::DataType::kHALF);
+          }
+        }
+      }
+
     }
   }
 

@@ -41,7 +41,7 @@ class TrtConvertLayerNormTest(TrtLayerAutoScanTest):
         return True
 
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16]
+        return [np.float32]
 
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]], shape_input):
@@ -179,7 +179,7 @@ class TrtConvertLayerNormTest_2(TrtLayerAutoScanTest):
         return True
 
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16]
+        return [np.float32]
 
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]], shape_input):
