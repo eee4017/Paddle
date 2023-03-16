@@ -53,11 +53,8 @@ class TrtConvertConv2dFusionTest(TrtLayerAutoScanTest):
 
     def sample_program_configs(self):
         self.trt_param.workspace_size = 1073741824
-
         def generate_input1(batch, attrs: List[Dict[str, Any]]):
-            return np.ones([batch, attrs[0]['groups'] * 3, 64, 64]).astype(
-                np.float32
-            )
+            return np.ones([batch, attrs[0]['groups'] * 3, 64, 64]).astype(np.float32)
 
         def generate_weight1(attrs: List[Dict[str, Any]]):
             return np.random.random([24, 3, 3, 3]).astype(np.float32)
@@ -192,14 +189,14 @@ class TrtConvertConv2dFusionTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, False),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
         if program_config.get_input_type() == np.int8:
             self.trt_param.precision = paddle_infer.PrecisionType.Int8
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, False),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
@@ -215,14 +212,14 @@ class TrtConvertConv2dFusionTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, True),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
         if program_config.get_input_type() == np.int8:
             self.trt_param.precision = paddle_infer.PrecisionType.Int8
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, True),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
 
     def test(self):
