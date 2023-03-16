@@ -40,6 +40,9 @@ class TrtConvertSwishTest(TrtLayerAutoScanTest):
             else:
                 return np.random.random([1, 3, 64, 64]).astype(np.float32)
 
+        def generate_input1_round(dims, attrs: List[Dict[str, Any]]):
+            return (generate_input1(dims, attrs) + 0.5).round(2)
+
         dims_list = [1, 2, 3, 4]
         beta_list = [1.0, 2.0, 3.0]
         grid = [dims_list, beta_list]
@@ -60,7 +63,7 @@ class TrtConvertSwishTest(TrtLayerAutoScanTest):
                 weights={},
                 inputs={
                     'input_data': TensorConfig(
-                        data_gen=lambda: generate_input1(dims, dics)
+                        data_gen=lambda: generate_input1_round(dims, dics)
                     )
                 },
                 outputs=['output_data'],
