@@ -266,6 +266,8 @@ class ProgramConfig:
     def set_input_type(self, type: np.dtype):
         for inp in self.inputs.values():
             inp.astype(type)
+        for weight in self.weights.values():
+            weight.astype(type)
         return self
 
     def get_input_type(self) -> np.dtype:
