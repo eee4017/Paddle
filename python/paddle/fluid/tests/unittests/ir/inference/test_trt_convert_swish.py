@@ -32,13 +32,13 @@ class TrtConvertSwishTest(TrtLayerAutoScanTest):
     def sample_program_configs(self):
         def generate_input1(dims, attrs: List[Dict[str, Any]]):
             if dims == 1:
-                return np.ones([3]).astype(np.float32)
+                return np.random.random([3]).astype(np.float32)
             elif dims == 2:
-                return np.ones([3, 64]).astype(np.float32)
+                return np.random.random([3, 64]).astype(np.float32)
             elif dims == 3:
-                return np.ones([3, 64, 64]).astype(np.float32)
+                return np.random.random([3, 64, 64]).astype(np.float32)
             else:
-                return np.ones([1, 3, 64, 64]).astype(np.float32)
+                return np.random.random([1, 3, 64, 64]).astype(np.float32)
 
         dims_list = [1, 2, 3, 4]
         beta_list = [1.0, 2.0, 3.0]
