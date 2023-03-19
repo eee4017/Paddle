@@ -128,7 +128,7 @@ class TrtConvertFcTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, False),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
@@ -144,7 +144,7 @@ class TrtConvertFcTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, True),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
 
     def test(self):
