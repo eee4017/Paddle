@@ -692,14 +692,9 @@ int DeformableConvPlugin::enqueue_impl(int batch_size,
   return 0;
 }
 
-int DeformableConvPlugin::initialize() TRT_NOEXCEPT {
-  cublasStatus_t status = platform::dynload::cublasCreate(&cublasHandle_);
-  return status != CUBLAS_STATUS_SUCCESS;
-}
+int DeformableConvPlugin::initialize() TRT_NOEXCEPT { return 0; }
 
-void DeformableConvPlugin::terminate() TRT_NOEXCEPT {
-  platform::dynload::cublasDestroy(cublasHandle_);
-}
+void DeformableConvPlugin::terminate() TRT_NOEXCEPT {}
 
 size_t DeformableConvPlugin::getSerializationSize() const TRT_NOEXCEPT {
   size_t serialize_size = 0;
@@ -773,7 +768,9 @@ bool DeformableConvPlugin::canBroadcastInputAcrossBatch(int input_index) const
 void DeformableConvPlugin::attachToContext(
     cudnnContext* cudnnContext,
     cublasContext* cublasContext,
-    nvinfer1::IGpuAllocator* gpuAllocator) TRT_NOEXCEPT {}
+    nvinfer1::IGpuAllocator* gpuAllocator) TRT_NOEXCEPT {
+  cublasHandle_ = cublasContext;
+}
 
 void DeformableConvPlugin::configurePlugin(
     const nvinfer1::Dims* input_dims,
@@ -812,22 +809,20 @@ void DeformableConvPlugin::configurePlugin(
 }
 
 nvinfer1::IPluginV2Ext* DeformableConvPlugin::clone() const TRT_NOEXCEPT {
-  auto* p = new DeformableConvPlugin(data_type_,
-                                     weights_,
-                                     kernel_dims_,
-                                     strides_,
-                                     paddings_,
-                                     dilations_,
-                                     groups_,
-                                     deformable_groups_,
-                                     im2col_step_,
-                                     input_dim_,
-                                     offset_dim_,
-                                     mask_dim_,
-                                     output_dim_,
-                                     with_fp16_);
-  p->cublasHandle_ = cublasHandle_;
-  return p;
+  return new DeformableConvPlugin(data_type_,
+                                  weights_,
+                                  kernel_dims_,
+                                  strides_,
+                                  paddings_,
+                                  dilations_,
+                                  groups_,
+                                  deformable_groups_,
+                                  im2col_step_,
+                                  input_dim_,
+                                  offset_dim_,
+                                  mask_dim_,
+                                  output_dim_,
+                                  with_fp16_);
 }
 
 void DeformableConvPluginCreator::setPluginNamespace(const char* lib_namespace)
