@@ -119,24 +119,24 @@ void TensorRTEngine::FreezeNetwork() {
                    "FP16 speed up, use FP32 instead.";
     } else {
       LOG(INFO) << "Run Paddle-TRT FP16 mode";
-      bool is_all_fp32 = true;
+      bool is_all_float = true;
       for (int i = 0; i < network()->getNbLayers(); i++) {
         auto layer = network()->getLayer(i);
         for (int j = 0; j < layer->getNbInputs(); j++) {
           auto t = layer->getInput(j);
           if (t) {
-            is_all_fp32 &= (t->getType() == nvinfer1::DataType::kFLOAT ||
+            is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
                             t->getType() == nvinfer1::DataType::kHALF);
           }
         }
         for (int j = 0; j < layer->getNbOutputs(); j++) {
           auto t = layer->getOutput(j);
           if (t) {
-            is_all_fp32 &= (t->getType() == nvinfer1::DataType::kFLOAT ||
+            is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
                             t->getType() == nvinfer1::DataType::kHALF);
           }
         }
-        if (is_all_fp32) {
+        if (is_all_float) {
           LOG(INFO) << "Set " << layer->getName() << " into FP16";
           layer->setPrecision(nvinfer1::DataType::kHALF);
           for (int j = 0; j < layer->getNbOutputs(); j++) {
