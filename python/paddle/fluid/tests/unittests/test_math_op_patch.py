@@ -24,7 +24,9 @@ import numpy as np
 
 class TestMathOpPatches(unittest.TestCase):
 
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
+        np.random.seed(1024)
         paddle.enable_static()
 
     @prog_scope()
