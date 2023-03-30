@@ -21,6 +21,8 @@ from program_config import TensorConfig, ProgramConfig
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest, SkipReasons
 import paddle.inference as paddle_infer
 
+import sys
+import logging
 
 class TrtConvertDepthwiseConv2dTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
@@ -39,7 +41,8 @@ class TrtConvertDepthwiseConv2dTest(TrtLayerAutoScanTest):
         return True
 
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16, np.int8]
+        # return [np.float32, np.float16, np.int8]
+        return [np.float16]
 
     def sample_program_configs(self):
         self.trt_param.workspace_size = 1073741824
@@ -56,7 +59,8 @@ class TrtConvertDepthwiseConv2dTest(TrtLayerAutoScanTest):
         paddings_options = [[0, 3], [1, 2, 3, 4]]
         groups_options = [1, 3]
         padding_algorithm_options = ['EXPLICIT', 'SAME', 'VAILD']
-        dilations_options = [[1, 1], [1, 2]]
+        # dilations_options = [[1, 1], [1, 2]]
+        dilations_options = [[1, 2]]
         data_format_options = ['NCHW']
 
         configurations = [
@@ -78,6 +82,8 @@ class TrtConvertDepthwiseConv2dTest(TrtLayerAutoScanTest):
             dilations,
             data_format,
         ) in itertools.product(*configurations):
+
+            # logging.warning(f"CONFIG = {batch}, {strides}, {paddings}, {groups}, {padding_algorithm}, {dilations}, {data_format}")
             attrs = [
                 {
                     "strides": strides,

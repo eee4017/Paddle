@@ -17,7 +17,9 @@ limitations under the License. */
 #include <NvInfer.h>
 #include <glog/logging.h>
 
+#include <iostream>
 #include <string>
+#include <unordered_map>
 
 #include "NvInferRuntimeCommon.h"
 #include "cuda_runtime_api.h"  // NOLINT
@@ -94,6 +96,71 @@ void TensorRTEngine::Execute(int batch_size,
   SetRuntimeBatch(batch_size);
 }
 
+void printNetwork(nvinfer1::INetworkDefinition *network) {
+  std::unordered_map<nvinfer1::DataType, std::string> m = {
+      {nvinfer1::DataType::kHALF, "FP16"},
+      {nvinfer1::DataType::kFLOAT, "FP32"},
+      {nvinfer1::DataType::kINT8, "INT8"},
+      {nvinfer1::DataType::kINT32, "INT32"},
+      {nvinfer1::DataType::kBOOL, "BOOL"},
+  };
+
+  auto printDim = [](const nvinfer1::Dims32 &D) {
+    std::cerr << "(";
+    for (int i = 0; i < D.nbDims; i++) {
+      std::cerr << D.d[i] << ",";
+    }
+    std::cerr << ")";
+  };
+
+  std::cerr << "\n=========== PRINT NETWORK ===========\n";
+  for (int i = 0; i < network->getNbLayers(); i++) {
+    auto layer = network->getLayer(i);
+
+    std::cerr << "Type: " << m[layer->getPrecision()] << " " << layer->getName()
+              << "\n";
+    std::cerr << "Input: ";
+
+    for (int j = 0; j < layer->getNbInputs(); j++) {
+      auto t = layer->getInput(j);
+      if (t) {
+        std::cerr << m[t->getType()];
+        printDim(t->getDimensions());
+        std::cerr << ",";
+      }
+    }
+    std::cerr << "\nOutput: ";
+    for (int j = 0; j < layer->getNbOutputs(); j++) {
+      auto t = layer->getOutput(j);
+      if (t) {
+        std::cerr << m[t->getType()];
+        printDim(t->getDimensions());
+        std::cerr << ",";
+      }
+    }
+    std::cerr << "\n";
+  }
+  std::cerr << "=====================================\n";
+}
+
+bool saveEngine(nvinfer1::IHostMemory* serializedEngine, std::string const &fileName) {
+  if (serializedEngine == nullptr) {
+    std::cerr << "Engine serialization failed" << std::endl;
+    return false;
+  }
+  std::ofstream engineFile(fileName, std::ios::binary);
+  std::cerr << "save model: " << fileName << "\n";
+  if (!engineFile) {
+    std::cerr << "Cannot open engine file: " << fileName << std::endl;
+    return false;
+  }
+
+
+  engineFile.write(static_cast<char *>(serializedEngine->data()),
+                   serializedEngine->size());
+  return !engineFile.fail();
+}
+
 void TensorRTEngine::FreezeNetwork() {
   freshDeviceId();
   VLOG(3) << "TRT to freeze network";
@@ -119,6 +186,8 @@ void TensorRTEngine::FreezeNetwork() {
                    "FP16 speed up, use FP32 instead.";
     } else {
       LOG(INFO) << "Run Paddle-TRT FP16 mode";
+      printNetwork(network());
+
       bool is_all_float = true;
       for (int i = 0; i < network()->getNbLayers(); i++) {
         auto layer = network()->getLayer(i);
@@ -126,14 +195,14 @@ void TensorRTEngine::FreezeNetwork() {
           auto t = layer->getInput(j);
           if (t) {
             is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
-                            t->getType() == nvinfer1::DataType::kHALF);
+                             t->getType() == nvinfer1::DataType::kHALF);
           }
         }
         for (int j = 0; j < layer->getNbOutputs(); j++) {
           auto t = layer->getOutput(j);
           if (t) {
             is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
-                            t->getType() == nvinfer1::DataType::kHALF);
+                             t->getType() == nvinfer1::DataType::kHALF);
           }
         }
         if (is_all_float) {
@@ -145,7 +214,6 @@ void TensorRTEngine::FreezeNetwork() {
           }
         }
       }
-
     }
   }
 
@@ -201,6 +269,7 @@ void TensorRTEngine::FreezeNetwork() {
     }
   }
 
+  use_dla_ = true;
   if (use_dla_) {
     if (!enable_int8 && !enable_fp16) {
       LOG(WARNING) << "TensorRT DLA must be used with int8 or fp16, but you "
@@ -299,6 +368,7 @@ void TensorRTEngine::FreezeNetwork() {
                    "opt_shape, false /*disable_trt_plugin_fp16*/)'";
     }
   }
+
 #if IS_TRT_VERSION_GE(8200)
   if (use_inspector_) {
     infer_builder_config_->setProfilingVerbosity(
@@ -310,9 +380,13 @@ void TensorRTEngine::FreezeNetwork() {
   infer_engine_.reset(infer_builder_->buildEngineWithConfig(
       *network(), *infer_builder_config_));
 #else
+  std::cerr << "Before Build\n";
   infer_builder_config_->setFlag(nvinfer1::BuilderFlag::kSPARSE_WEIGHTS);
-  ihost_memory_.reset(infer_builder_->buildSerializedNetwork(
-      *network(), *infer_builder_config_));
+  auto *hm = infer_builder_->buildSerializedNetwork(
+      *network(), *infer_builder_config_);
+  std::cerr << "After Build\n";
+  ihost_memory_.reset(hm);
+  saveEngine(hm, "/tmp/model.trt");
   infer_ptr<nvinfer1::IRuntime> runtime(createInferRuntime(&logger_));
   infer_engine_.reset(runtime->deserializeCudaEngine(ihost_memory_->data(),
                                                      ihost_memory_->size()));

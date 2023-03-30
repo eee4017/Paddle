@@ -759,6 +759,7 @@ class TrtLayerAutoScanTest(AutoScanTest):
                     nodes_num,
                     threshold,
                 ) in self.sample_predictor_configs(prog_config):
+                    
                     if os.path.exists(self.cache_dir):
                         shutil.rmtree(self.cache_dir)
 
@@ -820,6 +821,8 @@ class TrtLayerAutoScanTest(AutoScanTest):
 
                         # deserialize test
                         if trt_engine_num > 0:
+                            logging.warning('\n\n################\n')
+                            logging.warning(f"Type = {input_type}, prog_config = {prog_config}")
                             self.run_test_config(
                                 model,
                                 params,

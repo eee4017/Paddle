@@ -16,6 +16,9 @@ limitations under the License. */
 #include "paddle/fluid/inference/tensorrt/engine.h"
 #include "paddle/phi/common/data_type.h"
 
+#include <iostream>
+#include <unordered_map>
+
 namespace paddle {
 namespace framework {
 class Scope;
@@ -29,6 +32,58 @@ class OpDesc;
 namespace paddle {
 namespace inference {
 namespace tensorrt {
+
+namespace {
+std::unordered_map<nvinfer1::DataType, std::string> m = {
+    {nvinfer1::DataType::kHALF, "FP16"},
+    {nvinfer1::DataType::kFLOAT, "FP32"},
+    {nvinfer1::DataType::kINT8, "INT8"},
+    {nvinfer1::DataType::kINT32, "INT32"},
+    {nvinfer1::DataType::kBOOL, "BOOL"},
+};
+
+void printDim(const nvinfer1::Dims32& D) {
+  std::cerr << "(";
+  for (int i = 0; i < D.nbDims; i++) {
+    std::cerr << D.d[i] << ",";
+  }
+  std::cerr << ")";
+  std::cerr << "\n";
+};
+void printWeight(TensorRTEngine::Weight& w) {
+  std::cerr << m[w.get().type] << ", counts = " << w.get().count;
+  std::cerr << "\n";
+};
+void printDimHW(nvinfer1::DimsHW& d) {
+  std::cerr << "(" << d.h() << ", " << d.w() << ")";
+  std::cerr << "\n";
+};
+void printTensor(nvinfer1::ITensor* t) {
+  std::cerr << m[t->getType()];
+  auto d = t->getDimensions();
+  printDim(d);
+  std::cerr << "\n";
+};
+}  // namespace
+
+void printInfo(nvinfer1::ITensor* inputs,
+               int n_output, /* Conv output maps */
+               nvinfer1::DimsHW& ksize,
+               TensorRTEngine::Weight& weight,
+               TensorRTEngine::Weight& bias) {
+  std::cerr << "==========\n";
+  std::cerr << "conv:\n ";
+  std::cerr << " inputs = ";
+  printTensor(inputs);
+  std::cerr << " n_output = " << n_output << "\n";
+  std::cerr << " ksize = ";
+  printDimHW(ksize);
+  std::cerr << " weight = ";
+  printWeight(weight);
+  std::cerr << " bias = ";
+  printWeight(bias);
+  std::cerr << "==========\n";
+}
 
 template <typename RegistFunc, typename SetDilationFunc>
 void ConvertConv2d(TensorRTEngine* engine,
@@ -110,6 +165,7 @@ void ConvertConv2d(TensorRTEngine* engine,
     nv_post_paddings.d[1] = paddings[3];
   }
 
+  // auto* W = engine->GetITensor(op_desc.Input("Filter").front());
   auto weight = engine->GetTrtWeight(op_desc.Input("Filter").front(), *Y_t);
 
   TensorRTEngine::Weight bias;
@@ -143,7 +199,12 @@ void ConvertConv2d(TensorRTEngine* engine,
       platform::errors::Fatal("TensorRT create conv2d/conv2d_transpose"
                               " layer failed."));
   layer->setStride(nv_strides);
+  std::cerr << ">>> strides = ";
+  printDimHW(nv_strides);
   layer->setPrePadding(nv_pre_paddings);
+  std::cerr << ">>> pre_paddings = ";
+  printDimHW(nv_pre_paddings);
+
   if (output_padding.size() > 0) {
     nv_post_paddings.d[0] -= output_padding[0];
     nv_post_paddings.d[1] -= output_padding[1];
@@ -153,8 +214,12 @@ void ConvertConv2d(TensorRTEngine* engine,
         "The value in conv2d_transpose's PostPadding should be >= 0."));
   }
   layer->setPostPadding(nv_post_paddings);
+  std::cerr << ">>> post_paddings = ";
+  printDimHW(nv_post_paddings);
 
   layer->setNbGroups(groups);
+  std::cerr << ">>> groups = " << groups << "\n";
+
   if (padding_algorithm == "SAME") {
     layer->setPaddingMode(nvinfer1::PaddingMode::kSAME_UPPER);
     nv_dilations.d[0] = 1;
@@ -162,6 +227,8 @@ void ConvertConv2d(TensorRTEngine* engine,
   }
   // set dilations
   fset_dilation(layer, nv_dilations);
+  std::cerr << ">>> dilations = ";
+  printDimHW(nv_dilations);
 
   auto output_name = op_desc.Output("Output").front();
   layer->setName((name + " (Output: " + output_name + ")").c_str());
@@ -178,6 +245,8 @@ class Conv2dOpConverter : public OpConverter {
   void operator()(const framework::proto::OpDesc& op,
                   const framework::Scope& scope,
                   bool test_mode) override {
+    std::cerr << "ConvertConv2d\n\n";
+
     ConvertConv2d(
         engine_,
         op,
@@ -188,6 +257,7 @@ class Conv2dOpConverter : public OpConverter {
             nvinfer1::DimsHW& ksize,
             TensorRTEngine::Weight& weight,
             TensorRTEngine::Weight& bias) -> nvinfer1::IConvolutionLayer* {
+          printInfo(inputs, n_output, ksize, weight, bias);
           auto* layer = TRT_ENGINE_ADD_LAYER(engine_,
                                              Convolution,
                                              *inputs,
@@ -209,6 +279,8 @@ class Deconv2dOpConverter : public OpConverter {
   void operator()(const framework::proto::OpDesc& op,
                   const framework::Scope& scope,
                   bool test_mode) override {
+    std::cerr << "ConvertConv2d\n\n";
+
     ConvertConv2d(
         engine_,
         op,
