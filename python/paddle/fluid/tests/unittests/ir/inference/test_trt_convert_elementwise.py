@@ -745,6 +745,14 @@ class TrtConvertElementwiseTest_one_input_corner_case(TrtLayerAutoScanTest):
                 weight_data = weight_data + 1.0
             return weight_data
 
+        def generate_input_corner(shape, is_pow=False, is_div=False):
+            np_data = np.random.random(shape).astype(np.float32)
+            if is_pow:
+                return np_data + 0.5
+            if is_div:
+                return np_data + 1.0
+            return np_data
+
         batch_list = [1, 2, 4]
         shape_list = [[32], [32, 32], [32, 16, 4]]
         op_type_list = [
@@ -783,7 +791,9 @@ class TrtConvertElementwiseTest_one_input_corner_case(TrtLayerAutoScanTest):
                 },
                 inputs={
                     'input_data': TensorConfig(
-                        data_gen=lambda: generate_input(shape, is_pow=is_pow)
+                        data_gen=lambda: generate_input_corner(
+                            shape, is_pow=is_pow, is_div=is_div
+                        )
                     )
                 },
                 outputs=['output_data'],

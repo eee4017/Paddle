@@ -284,9 +284,9 @@ void TensorRTEngine::FreezeNetwork() {
   infer_builder_config_->setFlag(nvinfer1::BuilderFlag::kSPARSE_WEIGHTS);
   ihost_memory_.reset(infer_builder_->buildSerializedNetwork(
       *network(), *infer_builder_config_));
-  infer_ptr<nvinfer1::IRuntime> runtime(createInferRuntime(&logger_));
-  infer_engine_.reset(runtime->deserializeCudaEngine(ihost_memory_->data(),
-                                                     ihost_memory_->size()));
+  infer_runtime_.reset(createInferRuntime(&logger_));
+  infer_engine_.reset(infer_runtime_->deserializeCudaEngine(
+      ihost_memory_->data(), ihost_memory_->size()));
 #endif
 
   PADDLE_ENFORCE_NOT_NULL(

@@ -364,31 +364,31 @@ class TensorRTEngine {
 
   void Deserialize(const std::string& engine_serialized_data) {
     freshDeviceId();
-    infer_ptr<nvinfer1::IRuntime> runtime(createInferRuntime(&logger_));
+    infer_runtime_.reset(createInferRuntime(&logger_));
 
     if (use_dla_) {
       if (precision_ != AnalysisConfig::Precision::kInt8 &&
           precision_ != AnalysisConfig::Precision::kHalf) {
         LOG(WARNING) << "TensorRT DLA must be used with int8 or fp16, but you "
                         "set float32, so DLA is not used.";
-      } else if (runtime->getNbDLACores() == 0) {
+      } else if (infer_runtime_->getNbDLACores() == 0) {
         LOG(WARNING)
             << "TensorRT DLA is set by config, but your device does not have "
                "DLA, so DLA is not used.";
       } else {
-        if (dla_core_ < 0 || dla_core_ >= runtime->getNbDLACores()) {
+        if (dla_core_ < 0 || dla_core_ >= infer_runtime_->getNbDLACores()) {
           dla_core_ = 0;
           LOG(WARNING) << "Invalid DLACore, must be 0 < DLACore < "
-                       << runtime->getNbDLACores() << ", but got " << dla_core_
-                       << ", so use use 0 as default.";
+                       << infer_runtime_->getNbDLACores() << ", but got "
+                       << dla_core_ << ", so use use 0 as default.";
         }
-        runtime->setDLACore(dla_core_);
+        infer_runtime_->setDLACore(dla_core_);
         LOG(INFO) << "TensorRT DLA enabled in Deserialize(), DLACore "
                   << dla_core_;
       }
     }
 
-    infer_engine_.reset(runtime->deserializeCudaEngine(
+    infer_engine_.reset(infer_runtime_->deserializeCudaEngine(
         engine_serialized_data.c_str(), engine_serialized_data.size()));
 
     PADDLE_ENFORCE_NOT_NULL(
@@ -741,6 +741,7 @@ class TensorRTEngine {
   using infer_ptr = std::unique_ptr<T, Destroyer<T>>;
   infer_ptr<nvinfer1::IBuilder> infer_builder_;
   infer_ptr<nvinfer1::INetworkDefinition> infer_network_;
+  infer_ptr<nvinfer1::IRuntime> infer_runtime_;
   infer_ptr<nvinfer1::ICudaEngine> infer_engine_;
   std::unordered_map<PredictorID, infer_ptr<nvinfer1::IExecutionContext>>
       infer_context_;
