@@ -273,6 +273,13 @@ cc_library(
   SRCS fuse_relu_depthwise_conv_pass.cc
   DEPS pass graph_pattern_detector)
 
+if(WITH_CUDNN_FRONTEND)
+  cc_library(
+    fuse_resunit_pass
+    SRCS fuse_resunit_pass.cc
+    DEPS pass graph_pattern_detector)
+endif()
+
 set(GLOB_PASS_LIB
     ${PASS_LIBRARY}
     CACHE INTERNAL "Global PASS library")

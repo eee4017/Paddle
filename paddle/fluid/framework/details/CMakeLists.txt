@@ -388,6 +388,10 @@ set(IR_PASS_DEPS
     fuse_gemm_epilogue_pass
     delete_dropout_op_pass)
 
+if(WITH_CUDNN_FRONTEND)
+  set(IR_PASS_DEPS ${IR_PASS_DEPS} fuse_resunit_pass)
+endif()
+
 if(WITH_CINN)
   set(IR_PASS_DEPS ${IR_PASS_DEPS} build_cinn_pass)
 endif()
