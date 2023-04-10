@@ -114,6 +114,11 @@ void TensorRTEngine::FreezeNetwork() {
     infer_builder_config_->setFlag(nvinfer1::BuilderFlag::kFP16);
     infer_builder_config_->setFlag(
         nvinfer1::BuilderFlag::kOBEY_PRECISION_CONSTRAINTS);
+    infer_builder_config_->setPreviewFeature(
+        nvinfer1::PreviewFeature::
+            kDISABLE_EXTERNAL_TACTIC_SOURCES_FOR_CORE_0805,
+        false);
+
     if (!support_fp16) {
       LOG(INFO) << "You specify FP16 mode, but the hardware do not support "
                    "FP16 speed up, use FP32 instead.";
@@ -126,14 +131,14 @@ void TensorRTEngine::FreezeNetwork() {
           auto t = layer->getInput(j);
           if (t) {
             is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
-                            t->getType() == nvinfer1::DataType::kHALF);
+                             t->getType() == nvinfer1::DataType::kHALF);
           }
         }
         for (int j = 0; j < layer->getNbOutputs(); j++) {
           auto t = layer->getOutput(j);
           if (t) {
             is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
-                            t->getType() == nvinfer1::DataType::kHALF);
+                             t->getType() == nvinfer1::DataType::kHALF);
           }
         }
         if (is_all_float) {
@@ -145,7 +150,6 @@ void TensorRTEngine::FreezeNetwork() {
           }
         }
       }
-
     }
   }
 
