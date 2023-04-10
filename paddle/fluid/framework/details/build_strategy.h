@@ -126,7 +126,7 @@ struct BuildStrategy {
   bool sync_batch_norm_{false};
   // Fuse GEMM+Epilogue via cublasLt epilogue.
   bool fuse_gemm_epilogue_{false};
-
+  bool fuse_resunit_{false};
   // mkldnn_enabled_op_types specify the operator type list to
   // use MKLDNN acceleration. It is null in default, means
   // that all the operators supported by MKLDNN will be
