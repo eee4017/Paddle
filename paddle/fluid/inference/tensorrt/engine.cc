@@ -37,12 +37,10 @@ thread_local int TensorRTEngine::predictor_id_per_thread = -1;
 // layers due to a bug in TensorRT versions 8.6.1.0 and later. It prevents
 // precision settings on Conv2D layers to mitigate the issue until the TensorRT
 // team provides a permanent fix.
-bool IsFP16BlacklistLayer(std::string name) {
-  static std::unordered_set<std::string> fp16_setprecision_blacklist = {
-      "conv2d", "depthwise_conv2d", "relu"};
-
-  for (auto layer : fp16_setprecision_blacklist) {
-    if (name.find(layer) != std::string::npos) {
+bool IsFP16BlacklistLayer(const nvinfer1::ILayer *layer) {
+  if (auto conv_layer =
+          dynamic_cast<const nvinfer1::IConvolutionLayer *>(layer)) {
+    if (conv_layer->getNbGroups() > 1) {
       return true;
     }
   }
@@ -140,29 +138,38 @@ void TensorRTEngine::FreezeNetwork() {
                    "FP16 speed up, use FP32 instead.";
     } else {
       LOG(INFO) << "Run Paddle-TRT FP16 mode";
-      bool is_all_float = true;
+      bool is_valid_network = true;
       for (int i = 0; i < network()->getNbLayers(); i++) {
         auto layer = network()->getLayer(i);
-        for (int j = 0; j < layer->getNbInputs(); j++) {
-          auto t = layer->getInput(j);
-          if (t) {
-            is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
-                             t->getType() == nvinfer1::DataType::kHALF);
+        is_valid_network &= (!IsFP16BlacklistLayer(layer));
+      }
+
+      if (is_valid_network) {
+        bool is_all_float = true;
+
+        for (int i = 0; i < network()->getNbLayers(); i++) {
+          auto layer = network()->getLayer(i);
+          for (int j = 0; j < layer->getNbInputs(); j++) {
+            auto t = layer->getInput(j);
+            if (t) {
+              is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
+                               t->getType() == nvinfer1::DataType::kHALF);
+            }
           }
-        }
-        for (int j = 0; j < layer->getNbOutputs(); j++) {
-          auto t = layer->getOutput(j);
-          if (t) {
-            is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
-                             t->getType() == nvinfer1::DataType::kHALF);
-          }
-        }
-        if (is_all_float && !IsFP16BlacklistLayer(layer->getName())) {
-          LOG(INFO) << "Set " << layer->getName() << " into FP16";
-          layer->setPrecision(nvinfer1::DataType::kHALF);
           for (int j = 0; j < layer->getNbOutputs(); j++) {
             auto t = layer->getOutput(j);
-            if (t) layer->setOutputType(j, nvinfer1::DataType::kHALF);
+            if (t) {
+              is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
+                               t->getType() == nvinfer1::DataType::kHALF);
+            }
+          }
+          if (is_all_float) {
+            LOG(INFO) << "Set " << layer->getName() << " into FP16";
+            layer->setPrecision(nvinfer1::DataType::kHALF);
+            for (int j = 0; j < layer->getNbOutputs(); j++) {
+              auto t = layer->getOutput(j);
+              if (t) layer->setOutputType(j, nvinfer1::DataType::kHALF);
+            }
           }
         }
       }
