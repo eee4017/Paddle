@@ -33,6 +33,22 @@ namespace tensorrt {
 int TensorRTEngine::runtime_batch_ = 1;
 thread_local int TensorRTEngine::predictor_id_per_thread = -1;
 
+// The IsFP16BlacklistLayer function acts as a temporary blacklist for Conv2D
+// layers due to a bug in TensorRT versions 8.6.1.0 and later. It prevents
+// precision settings on Conv2D layers to mitigate the issue until the TensorRT
+// team provides a permanent fix.
+bool IsFP16BlacklistLayer(std::string name) {
+  static std::unordered_set<std::string> fp16_setprecision_blacklist = {
+      "conv2d", "depthwise_conv2d", "relu"};
+
+  for (auto layer : fp16_setprecision_blacklist) {
+    if (name.find(layer) != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void TensorRTEngine::Weight::SetDataType(phi::DataType type) {
   nvinfer1::DataType nv_type = nvinfer1::DataType::kFLOAT;
   switch (type) {
@@ -141,7 +157,7 @@ void TensorRTEngine::FreezeNetwork() {
                              t->getType() == nvinfer1::DataType::kHALF);
           }
         }
-        if (is_all_float) {
+        if (is_all_float && !IsFP16BlacklistLayer(layer->getName())) {
           LOG(INFO) << "Set " << layer->getName() << " into FP16";
           layer->setPrecision(nvinfer1::DataType::kHALF);
           for (int j = 0; j < layer->getNbOutputs(); j++) {
