@@ -32,15 +32,11 @@ import paddle.nn as nn
 def skip_unit_test():
     return (
         not paddle.is_compiled_with_cuda()
-        or paddle.device.cuda.get_device_capability() != (8, 0)
-        or paddle.get_cudnn_version() < 8800
+        or paddle.device.cuda.get_device_capability()[0] < 8
     )
 
 
-skip_msg = (
-    "only support with cuda and CUDNN 8.8 or later,"
-    " and only Ampere devices are supported"
-)
+skip_msg = "only support with cuda and Ampere or later devices"
 
 
 @skip_check_grad_ci(reason="no grap op")
