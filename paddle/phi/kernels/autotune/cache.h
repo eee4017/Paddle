@@ -43,15 +43,18 @@ enum class AlgorithmType {
   kConvForward = 1,
   kConvBackwardData = 2,
   kConvBackwardFilter = 3,
-#ifdef PADDLE_WITH_CUDNN_FRONTEND
-  kConvForwardV8 = 4,
-  kConvBackwardDataV8 = 5,
-  kConvBackwardFilterV8 = 6,
-  kTranspose = 7,
-  kAlgorithmCount = 8
-#else
   kTranspose = 4,
-  kAlgorithmCount = 5
+  kAlgorithmCount = 5,
+#ifdef PADDLE_WITH_CUDNN_FRONTEND
+  kConvForwardV8 = 6,
+  kConvBackwardDataV8 = 7,
+  kConvBackwardFilterV8 = 8,
+  kScaleBiasReluConvBNstats = 9,
+  kBNFinalize = 10,
+  kScaleBiasAddRelu = 11,
+  kDgradDreluBnBwdWeight = 12,
+  kBnActWgrad = 13,
+  kDbnApply = 14,
 #endif
 };
 
