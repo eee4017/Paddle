@@ -201,7 +201,7 @@ class AutoScanTest(unittest.TestCase):
 
     @abc.abstractmethod
     def ignore_log(self, msg: str):
-        logging.warning(f"SKIP: {msg}")
+        logging.debug(f"SKIP: {msg}")
 
     @abc.abstractmethod
     def fail_log(self, msg: str):

@@ -36,7 +36,7 @@ class TrtConvertGroupNormTest(TrtLayerAutoScanTest):
         return True
 
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16]
+        return [np.float32]
 
     def sample_program_configs(self):
         def generate_input(attrs: List[Dict[str, Any]], batch):

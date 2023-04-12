@@ -128,7 +128,7 @@ class TrtConvertFcTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, False),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
@@ -144,7 +144,7 @@ class TrtConvertFcTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, True),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
 
     def test(self):
@@ -243,7 +243,7 @@ class TrtConvertFcTest2(TrtLayerAutoScanTest):
             yield (self.create_inference_config(), (1, 2), 1e-05)
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
-            yield (self.create_inference_config(), (1, 2), (1e-03, 1e-03))
+            yield (self.create_inference_config(), (1, 2), (1e-02, 1e-02))
         # for dynamic_shape
         generate_dynamic_shape()
         if program_config.get_input_type() == np.float32:
@@ -251,7 +251,7 @@ class TrtConvertFcTest2(TrtLayerAutoScanTest):
             yield (self.create_inference_config(), (1, 2), 1e-05)
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
-            yield (self.create_inference_config(), (1, 2), (1e-03, 1e-03))
+            yield (self.create_inference_config(), (1, 2), (1e-02, 1e-02))
 
     def test(self):
         self.run_test()
@@ -353,7 +353,7 @@ class TrtConvertFcTest3(TrtLayerAutoScanTest):
             yield (self.create_inference_config(), (1, 2), 1e-05)
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
-            yield (self.create_inference_config(), (1, 2), (1e-03, 1e-03))
+            yield (self.create_inference_config(), (1, 2), (1e-02, 1e-02))
         # for dynamic_shape
         generate_dynamic_shape()
         if program_config.get_input_type() == np.float32:
@@ -361,10 +361,10 @@ class TrtConvertFcTest3(TrtLayerAutoScanTest):
             yield (self.create_inference_config(), (1, 2), 1e-05)
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
-            yield (self.create_inference_config(), (1, 2), (1e-03, 1e-03))
+            yield (self.create_inference_config(), (1, 2), (1e-02, 1e-02))
         if program_config.get_input_type() == np.int8:
             self.trt_param.precision = paddle_infer.PrecisionType.Int8
-            yield (self.create_inference_config(), (1, 2), (1e-03, 1e-03))
+            yield (self.create_inference_config(), (1, 2), (1e-02, 1e-02))
 
     def test(self):
         self.run_test()

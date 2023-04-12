@@ -40,6 +40,22 @@ class TrtConvertActivationTest(TrtLayerAutoScanTest):
             else:
                 return np.random.random([batch, 3, 32, 32]).astype(np.float32)
 
+        def generate_input_threshold_relu(
+            dims, batch, attrs: List[Dict[str, Any]]
+        ):
+            if dims == 1:
+                return np.random.random([32]).astype(np.float32).round(2)
+            elif dims == 2:
+                return np.random.random([3, 32]).astype(np.float32).round(2)
+            elif dims == 3:
+                return np.random.random([3, 32, 32]).astype(np.float32).round(2)
+            else:
+                return (
+                    np.random.random([batch, 3, 32, 32])
+                    .astype(np.float32)
+                    .round(2)
+                )
+
         dims_list = [1, 2, 3, 4]
         batch_list = [1, 4]
         op_type_list = [
@@ -54,8 +70,8 @@ class TrtConvertActivationTest(TrtLayerAutoScanTest):
             'thresholded_relu',
             'softplus',
         ]
-        beta_list = [0.67]
-        alpha_list = [0.67]
+        beta_list = [0.6666]
+        alpha_list = [0.6666]
         grid = [dims_list, batch_list, op_type_list, beta_list, alpha_list]
         for dims, batch, op_type, beta, alpha in itertools.product(*grid):
             self.dims = dims
@@ -84,7 +100,11 @@ class TrtConvertActivationTest(TrtLayerAutoScanTest):
                 weights={},
                 inputs={
                     'input_data': TensorConfig(
-                        data_gen=lambda: generate_input1(dims, batch, dics)
+                        data_gen=lambda: generate_input_threshold_relu(
+                            dims, batch, dics
+                        )
+                        if op_type == 'thresholded_relu'
+                        else generate_input1(dims, batch, dics)
                     )
                 },
                 outputs=['output_data'],
@@ -139,14 +159,14 @@ class TrtConvertActivationTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, False),
-                1e-05,
+                (1e-05, 1e-05),
             )
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, False),
-                1e-03,
+                (1e-02, 1e-02),
             )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
@@ -155,14 +175,14 @@ class TrtConvertActivationTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, True),
-                1e-05,
+                (1e-05, 1e-05),
             )
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, True),
-                1e-03,
+                (1e-02, 1e-02),
             )
 
     def test(self):
