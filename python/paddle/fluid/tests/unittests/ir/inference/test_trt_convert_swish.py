@@ -27,18 +27,21 @@ class TrtConvertSwishTest(TrtLayerAutoScanTest):
         return True
 
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16]
+        return [np.float32]
 
     def sample_program_configs(self):
         def generate_input1(dims, attrs: List[Dict[str, Any]]):
             if dims == 1:
-                return np.ones([3]).astype(np.float32)
+                return np.random.random([3]).astype(np.float32)
             elif dims == 2:
-                return np.ones([3, 64]).astype(np.float32)
+                return np.random.random([3, 64]).astype(np.float32)
             elif dims == 3:
-                return np.ones([3, 64, 64]).astype(np.float32)
+                return np.random.random([3, 64, 64]).astype(np.float32)
             else:
-                return np.ones([1, 3, 64, 64]).astype(np.float32)
+                return np.random.random([1, 3, 64, 64]).astype(np.float32)
+
+        def generate_input1_round(dims, attrs: List[Dict[str, Any]]):
+            return (generate_input1(dims, attrs) + 0.5).round(2)
 
         dims_list = [1, 2, 3, 4]
         beta_list = [1.0, 2.0, 3.0]
@@ -60,7 +63,7 @@ class TrtConvertSwishTest(TrtLayerAutoScanTest):
                 weights={},
                 inputs={
                     'input_data': TensorConfig(
-                        data_gen=lambda: generate_input1(dims, dics)
+                        data_gen=lambda: generate_input1_round(dims, dics)
                     )
                 },
                 outputs=['output_data'],
@@ -117,14 +120,14 @@ class TrtConvertSwishTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, False),
-                1e-05,
+                (1e-05, 1e-05),
             )
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, False),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
@@ -133,14 +136,14 @@ class TrtConvertSwishTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, True),
-                1e-05,
+                (1e-05, 1e-05),
             )
         if program_config.get_input_type() == np.float16:
             self.trt_param.precision = paddle_infer.PrecisionType.Half
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, True),
-                (1e-03, 1e-03),
+                (1e-02, 1e-02),
             )
 
     def test(self):

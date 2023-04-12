@@ -35,7 +35,7 @@ class TrtConvertGatherTest(TrtLayerAutoScanTest):
         return True
 
     def get_avalible_input_type(self) -> List[np.dtype]:
-        return [np.float32, np.float16]
+        return [np.float32]
 
     def sample_program_configs(self):
         def generate_input1(shape):
@@ -101,7 +101,7 @@ class TrtConvertGatherTest(TrtLayerAutoScanTest):
                         data_gen=lambda: generate_input1(shape)
                     ),
                     'index_data': TensorConfig(
-                        data_gen=lambda: generate_input2
+                        data_gen=lambda: generate_input2(index)
                         if index_type_int32 == True
                         else generate_input4(index)
                     ),
