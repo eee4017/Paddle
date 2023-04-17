@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
 from functools import partial
 from typing import Any, Dict, List
@@ -26,6 +27,9 @@ import paddle.inference as paddle_infer
 class TrtConvertAffineChannelTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input1(batch, dims, attrs: List[Dict[str, Any]]):
@@ -43,48 +47,44 @@ class TrtConvertAffineChannelTest(TrtLayerAutoScanTest):
             else:
                 return np.random.random([3]).astype(np.float32)
 
-        for dims in [2, 4]:
-            for batch in [1, 2, 4]:
-                for data_layout in ["NCHW", "NHWC"]:
-
-                    self.dims = dims
-                    dics = [{"data_layout": data_layout}]
-
-                    ops_config = [
-                        {
-                            "op_type": "affine_channel",
-                            "op_inputs": {
-                                "X": ["input_data"],
-                                "Scale": ["scale"],
-                                "Bias": ["bias"],
-                            },
-                            "op_outputs": {"Out": ["output_data"]},
-                            "op_attrs": dics[0],
-                        }
-                    ]
-                    ops = self.generate_op_config(ops_config)
-
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={
-                            "scale": TensorConfig(
-                                data_gen=partial(generate_weight1, dims, dics)
-                            ),
-                            "bias": TensorConfig(
-                                data_gen=partial(generate_weight1, dims, dics)
-                            ),
-                        },
-                        inputs={
-                            "input_data": TensorConfig(
-                                data_gen=partial(
-                                    generate_input1, batch, dims, dics
-                                )
-                            )
-                        },
-                        outputs=["output_data"],
+        dims_list = [2, 4]
+        batch_list = [1, 2, 4]
+        data_layout_list = ['NCHW', 'NHWC']
+        grid = [dims_list, batch_list, data_layout_list]
+        for dims, batch, data_layout in itertools.product(*grid):
+            self.dims = dims
+            dics = [{'data_layout': data_layout}]
+            ops_config = [
+                {
+                    'op_type': 'affine_channel',
+                    'op_inputs': {
+                        'X': ['input_data'],
+                        'Scale': ['scale'],
+                        'Bias': ['bias'],
+                    },
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'scale': TensorConfig(
+                        data_gen=partial(generate_weight1, dims, dics)
+                    ),
+                    'bias': TensorConfig(
+                        data_gen=partial(generate_weight1, dims, dics)
+                    ),
+                },
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1(batch, dims, dics)
                     )
-
-                    yield program_config
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -133,25 +133,36 @@ class TrtConvertAffineChannelTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def test(self):
         self.run_test()

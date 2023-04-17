@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
 from functools import partial
 from typing import Any, Dict, List
@@ -52,6 +53,9 @@ class TrtConvertDepthwiseConv2dTransposeTest(TrtLayerAutoScanTest):
 
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         self.trt_param.workspace_size = 1073741824
 
@@ -65,63 +69,71 @@ class TrtConvertDepthwiseConv2dTransposeTest(TrtLayerAutoScanTest):
                 np.float32
             )
 
-        for batch in [1, 2, 4]:
-            for strides in [[1, 1], [2, 2], [1, 2]]:
-                for paddings in [[0, 3], [1, 2, 3, 4]]:
-                    for groups in [1, 2, 3]:
-                        for padding_algorithm in ['EXPLICIT', 'SAME', 'VALID']:
-                            for dilations in [[1, 1], [2, 2], [1, 2]]:
-                                for data_format in ['NCHW']:
-
-                                    dics = [
-                                        {
-                                            "data_fromat": data_format,
-                                            "dilations": dilations,
-                                            "padding_algorithm": padding_algorithm,
-                                            "groups": groups,
-                                            "paddings": paddings,
-                                            "strides": strides,
-                                            "data_format": data_format,
-                                            "output_size": [],
-                                            "output_padding": [],
-                                        }
-                                    ]
-
-                                    ops_config = [
-                                        {
-                                            "op_type": "conv2d_transpose",
-                                            "op_inputs": {
-                                                "Input": ["input_data"],
-                                                "Filter": ["conv2d_weight"],
-                                            },
-                                            "op_outputs": {
-                                                "Output": ["output_data"]
-                                            },
-                                            "op_attrs": dics[0],
-                                        }
-                                    ]
-                                    ops = self.generate_op_config(ops_config)
-
-                                    program_config = ProgramConfig(
-                                        ops=ops,
-                                        weights={
-                                            "conv2d_weight": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_weight1, dics
-                                                )
-                                            )
-                                        },
-                                        inputs={
-                                            "input_data": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_input1, batch, dics
-                                                )
-                                            )
-                                        },
-                                        outputs=["output_data"],
-                                    )
-
-                                    yield program_config
+        batch_list = [1, 2, 4]
+        strides_list = [[1, 1], [2, 2], [1, 2]]
+        paddings_list = [[0, 3], [1, 2, 3, 4]]
+        groups_list = [1, 2, 3]
+        padding_algorithm_list = ['EXPLICIT', 'SAME', 'VALID']
+        dilations_list = [[1, 1], [2, 2], [1, 2]]
+        data_format_list = ['NCHW']
+        grid = [
+            batch_list,
+            strides_list,
+            paddings_list,
+            groups_list,
+            padding_algorithm_list,
+            dilations_list,
+            data_format_list,
+        ]
+        for (
+            batch,
+            strides,
+            paddings,
+            groups,
+            padding_algorithm,
+            dilations,
+            data_format,
+        ) in itertools.product(*grid):
+            dics = [
+                {
+                    'data_fromat': data_format,
+                    'dilations': dilations,
+                    'padding_algorithm': padding_algorithm,
+                    'groups': groups,
+                    'paddings': paddings,
+                    'strides': strides,
+                    'data_format': data_format,
+                    'output_size': [],
+                    'output_padding': [],
+                }
+            ]
+            ops_config = [
+                {
+                    'op_type': 'conv2d_transpose',
+                    'op_inputs': {
+                        'Input': ['input_data'],
+                        'Filter': ['conv2d_weight'],
+                    },
+                    'op_outputs': {'Output': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={
+                    'conv2d_weight': TensorConfig(
+                        data_gen=partial(generate_weight1, dics)
+                    )
+                },
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1(batch, dics)
+                    )
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -154,28 +166,39 @@ class TrtConvertDepthwiseConv2dTransposeTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # self.trt_param.precision = paddle_infer.PrecisionType.Int8
         # yield self.create_inference_config(), generate_trt_nodes_num(
         #     attrs, False), (1e-5, 1e-5)
-
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
         # self.trt_param.precision = paddle_infer.PrecisionType.Int8
         # yield self.create_inference_config(), generate_trt_nodes_num(
         #     attrs, True), (1e-5, 1e-5)

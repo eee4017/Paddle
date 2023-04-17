@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
-from functools import partial
 from typing import List
 
 import numpy as np
@@ -33,6 +33,9 @@ class TrtConvertArgMaxTest(TrtLayerAutoScanTest):
             return False
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input(rank, batch):
             dims = [batch]
@@ -41,41 +44,40 @@ class TrtConvertArgMaxTest(TrtLayerAutoScanTest):
             size = np.prod(dims)
             return (np.arange(size) % 10 - 5).astype("float32").reshape(dims)
 
-        for rank in [3, 4]:
-            for batch in [1, 4]:
-                for axis in [-1, 0, 1, 2, 3]:
-                    for keepdims in [True, False]:
-                        self.rank = rank
-                        flatten = False
-                        dtype = 2
-                        ops_config = [
-                            {
-                                "op_type": "arg_max",
-                                "op_inputs": {"X": ["arg_max_input"]},
-                                "op_outputs": {"Out": ["arg_max_out"]},
-                                "op_attrs": {
-                                    "axis": axis,
-                                    "keepdims": keepdims,
-                                    "flatten": flatten,
-                                    "dtype": dtype,
-                                },
-                                "outputs_dtype": {"arg_max_out": np.int32},
-                            }
-                        ]
-                        ops = self.generate_op_config(ops_config)
-                        program_config = ProgramConfig(
-                            ops=ops,
-                            weights={},
-                            inputs={
-                                "arg_max_input": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input, rank, batch
-                                    )
-                                )
-                            },
-                            outputs=["arg_max_out"],
-                        )
-                        yield program_config
+        rank_list = [3, 4]
+        batch_list = [1, 4]
+        axis_list = [-1, 0, 1, 2, 3]
+        keepdims_list = [True, False]
+        grid = [rank_list, batch_list, axis_list, keepdims_list]
+        for rank, batch, axis, keepdims in itertools.product(*grid):
+            self.rank = rank
+            flatten = False
+            dtype = 2
+            ops_config = [
+                {
+                    'op_type': 'arg_max',
+                    'op_inputs': {'X': ['arg_max_input']},
+                    'op_outputs': {'Out': ['arg_max_out']},
+                    'op_attrs': {
+                        'axis': axis,
+                        'keepdims': keepdims,
+                        'flatten': flatten,
+                        'dtype': dtype,
+                    },
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'arg_max_input': TensorConfig(
+                        data_gen=lambda: generate_input(rank, batch)
+                    )
+                },
+                outputs=['arg_max_out'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -117,25 +119,36 @@ class TrtConvertArgMaxTest(TrtLayerAutoScanTest):
         self.trt_param.workspace_size = 1024000
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def test(self):
         self.run_test()

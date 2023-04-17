@@ -13,12 +13,20 @@
 # limitations under the License.
 
 import itertools
+import os
+import shutil
+import time
 import unittest
 from functools import partial
 from typing import Any, Dict, List
 
 import numpy as np
-from program_config import ProgramConfig, TensorConfig
+from program_config import (
+    ProgramConfig,
+    TensorConfig,
+    create_fake_model,
+    create_quant_model,
+)
 from trt_layer_auto_scan_test import TrtLayerAutoScanTest
 
 import paddle.inference as paddle_infer
@@ -33,11 +41,10 @@ class TrtConvertConv2dTest(TrtLayerAutoScanTest):
         ]
 
         if (
-            inputs['input_data'].shape[1]
+            inputs['input_data'].shape[3]
             != weights['conv2d_weight'].shape[1] * attrs[0]['groups']
         ):
             return False
-
         ver = paddle_infer.get_trt_compile_version()
         if ver[0] * 1000 + ver[1] * 100 + ver[0] * 10 < 7000:
             if attrs[0]['padding_algorithm'] == 'SAME' and (
@@ -55,7 +62,7 @@ class TrtConvertConv2dTest(TrtLayerAutoScanTest):
 
         def generate_input1(batch, attrs: List[Dict[str, Any]]):
             return (
-                np.ones([batch, attrs[0]['groups'] * 3, 64, 64]).astype(
+                np.ones([batch, 64, 64, 3 * attrs[0]['groups']]).astype(
                     np.float32
                 )
                 / 4
@@ -64,24 +71,23 @@ class TrtConvertConv2dTest(TrtLayerAutoScanTest):
         def generate_weight1(attrs: List[Dict[str, Any]]):
             return np.random.random([9, 3, 3, 3]).astype(np.float32) - 0.5
 
-        batch_options = [1, 2]
-        strides_options = [[2, 2], [1, 2]]
-        paddings_options = [[0, 3], [1, 2, 3, 4]]
-        groups_options = [1, 3]
-        padding_altorithm_options = ['EXPLICIT', 'SAME', 'VALID']
-        dilations_options = [[1, 2]]
-        data_format_options = ['NCHW']
+        batch_list = [1, 2]
+        strides_list = [[2, 2], [1, 2]]
+        paddings_list = [[0, 3], [1, 2, 3, 4]]
+        groups_list = [1]
+        padding_altorithm_list = ['EXPLICIT', 'SAME', 'VALID']
+        dilations_list = [[1, 2]]
+        data_format_list = ['NHWC']
 
-        configurations = [
-            batch_options,
-            strides_options,
-            paddings_options,
-            groups_options,
-            padding_altorithm_options,
-            dilations_options,
-            data_format_options,
+        combination = [
+            batch_list,
+            strides_list,
+            paddings_list,
+            groups_list,
+            padding_altorithm_list,
+            dilations_list,
+            data_format_list,
         ]
-
         for (
             batch,
             strides,
@@ -90,9 +96,8 @@ class TrtConvertConv2dTest(TrtLayerAutoScanTest):
             padding_algorithm,
             dilations,
             data_format,
-        ) in itertools.product(*configurations):
-
-            attrs = [
+        ) in itertools.product(*combination):
+            dics = [
                 {
                     "data_fromat": data_format,
                     "dilations": dilations,
@@ -113,13 +118,13 @@ class TrtConvertConv2dTest(TrtLayerAutoScanTest):
                         "Filter": ["conv2d_weight"],
                     },
                     "op_outputs": {"Output": ["conv_output_data"]},
-                    "op_attrs": attrs[0],
+                    "op_attrs": dics[0],
                 },
                 {
                     "op_type": "relu",
                     "op_inputs": {"X": ["conv_output_data"]},
                     "op_outputs": {"Out": ["output_data"]},
-                    "op_attrs": attrs[1],
+                    "op_attrs": dics[1],
                 },
             ]
 
@@ -129,12 +134,12 @@ class TrtConvertConv2dTest(TrtLayerAutoScanTest):
                 ops=ops,
                 weights={
                     "conv2d_weight": TensorConfig(
-                        data_gen=partial(generate_weight1, attrs)
+                        data_gen=partial(generate_weight1, dics)
                     )
                 },
                 inputs={
                     "input_data": TensorConfig(
-                        data_gen=partial(generate_input1, batch, attrs)
+                        data_gen=partial(generate_input1, batch, dics)
                     )
                 },
                 outputs=["output_data"],
@@ -146,18 +151,17 @@ class TrtConvertConv2dTest(TrtLayerAutoScanTest):
         self, program_config
     ) -> (paddle_infer.Config, List[int], float):
         def generate_dynamic_shape(attrs):
-            input_groups = attrs[0]['groups'] * 3
             self.dynamic_shape.min_input_shape = {
-                "input_data": [1, input_groups, 32, 32],
-                "output_data": [1, 24, 32, 32],
+                "input_data": [1, 32, 32, 3 * attrs[0]['groups']],
+                "output_data": [1, 32, 32, 24],
             }
             self.dynamic_shape.max_input_shape = {
-                "input_data": [4, input_groups, 64, 64],
-                "output_data": [4, 24, 64, 64],
+                "input_data": [4, 64, 64, 3 * attrs[0]['groups']],
+                "output_data": [4, 64, 64, 24],
             }
             self.dynamic_shape.opt_input_shape = {
-                "input_data": [1, input_groups, 64, 64],
-                "output_data": [1, 24, 64, 64],
+                "input_data": [1, 64, 64, 3 * attrs[0]['groups']],
+                "output_data": [1, 64, 64, 24],
             }
 
         def clear_dynamic_shape():
@@ -193,7 +197,7 @@ class TrtConvertConv2dTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, False),
-                (1e-02, 1e-02),
+                (1e-05, 1e-05),
             )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
@@ -216,14 +220,90 @@ class TrtConvertConv2dTest(TrtLayerAutoScanTest):
             yield (
                 self.create_inference_config(),
                 generate_trt_nodes_num(attrs, True),
-                (1e-02, 1e-02),
+                (1e-05, 1e-05),
             )
 
     def test(self):
         self.run_test()
 
+    # Paddle raw OP fake_channel_wise_dequantize_abs_max dose not support NHWC data format.
+    # GPU (baseline) will lead to an error (incorrect channel size).
+    # Paddle-TRT will convert IR pattern quant->conv2d->dequant to conv2d (with attr InScale), so it can work.
+    # Hence, we only test whether Paddle-TRT can successfully work or not.
     def test_quant(self):
-        self.run_test(quant=True)
+        status = True
+        np.random.seed(int(time.strftime("%W")))
+        run_flags = []
+        for prog_config in self.sample_program_configs():
+            # In CI, only run 30% cases
+            if np.random.rand() < self.num_percent_cases:
+                run_flags.append(True)
+            else:
+                run_flags.append(False)
+        np.random.seed(1024)
+        for prog_config, run_flags in zip(
+            self.sample_program_configs(), run_flags
+        ):
+            if not run_flags:
+                continue
+
+            # if program is invalid, we should skip that cases.
+            if not self.is_program_valid(prog_config):
+                continue
+            model, params = create_fake_model(prog_config)
+            model, params = create_quant_model(model, params)
+            feed_data = {}
+            for name, tensor_config in prog_config.inputs.items():
+                feed_data[name] = {
+                    'data': tensor_config.data,
+                    'lod': tensor_config.lod,
+                }
+            for (
+                pred_config,
+                nodes_num,
+                threshold,
+            ) in self.sample_predictor_configs(prog_config):
+                if os.path.exists(self.cache_dir):
+                    shutil.rmtree(self.cache_dir)
+
+                if (
+                    pred_config.tensorrt_precision_mode()
+                    != paddle_infer.PrecisionType.Int8
+                ):
+                    continue
+
+                try:
+                    pred_config_deserialize = paddle_infer.Config(pred_config)
+                    self.run_test_config(
+                        model, params, prog_config, pred_config, feed_data
+                    )
+                    self.assert_op_size(nodes_num[0], nodes_num[1])
+                    # deserialize test
+                    if nodes_num[0] > 0:
+                        self.run_test_config(
+                            model,
+                            params,
+                            prog_config,
+                            pred_config_deserialize,
+                            feed_data,
+                        )
+                except Exception as e:
+                    self.fail_log(
+                        str(prog_config)
+                        + ' vs '
+                        + self.inference_config_str(pred_config)
+                        + f'\033[1;31m \nERROR INFO: {str(e)}\033[0m'
+                    )
+                    status = False
+                    continue
+                self.success_log(
+                    'RUN '
+                    + str(prog_config)
+                    + ' with '
+                    + self.inference_config_str(pred_config)
+                )
+
+        self.assertTrue(status)
 
 
 if __name__ == "__main__":
