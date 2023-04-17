@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
 from functools import partial
 from typing import Any, Dict, List
@@ -31,6 +32,9 @@ class TrtConvertActivationTest(TrtLayerAutoScanTest):
                 return False
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         self.trt_param.workspace_size = 1073741824
 
@@ -44,6 +48,7 @@ class TrtConvertActivationTest(TrtLayerAutoScanTest):
             else:
                 return np.random.random([batch, 3, 32, 32]).astype(np.float32)
 
+<<<<<<< HEAD
         def generate_int_input(dims, batch, attrs: List[Dict[str, Any]]):
             if dims == 0:
                 return np.random.random([]).astype(np.int32)
@@ -108,6 +113,67 @@ class TrtConvertActivationTest(TrtLayerAutoScanTest):
                     )
 
                     yield program_config
+=======
+        def generate_input1_round(dims, batch, attrs: List[Dict[str, Any]]):
+            return (generate_input1(dims, batch, attrs) - 0.5).round(2)
+
+        dims_list = [1, 2, 3, 4]
+        batch_list = [1, 4]
+        op_type_list = [
+            'exp',
+            'log',
+            'sqrt',
+            'abs',
+            'sin',
+            'cos',
+            'tan',
+            'sinh',
+            'cosh',
+            'asin',
+            'acos',
+            'atan',
+            'asinh',
+            'atanh',
+            'ceil',
+            'floor',
+        ]
+        grid = [dims_list, batch_list, op_type_list]
+        for dims, batch, op_type in itertools.product(*grid):
+            self.dims = dims
+            dics = [{}]
+            ops_config = [
+                {
+                    'op_type': op_type,
+                    'op_inputs': {'X': ['input_data']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            if op_type in ['asin', 'acos', 'atanh', 'floor']:
+                program_config = ProgramConfig(
+                    ops=ops,
+                    weights={},
+                    inputs={
+                        'input_data': TensorConfig(
+                            data_gen=lambda: generate_input1_round(dims, batch, dics)
+                        )
+                    },
+                    outputs=['output_data'],
+                )
+            else:
+                program_config = ProgramConfig(
+                    ops=ops,
+                    weights={},
+                    inputs={
+                        'input_data': TensorConfig(
+                            data_gen=lambda: generate_input1(dims, batch, dics)
+                        )
+                    },
+                    outputs=['output_data'],
+                )
+            yield program_config
+>>>>>>> test_trt_convert_[u-z]
 
                 for op_type in [
                     "exp",
@@ -201,25 +267,36 @@ class TrtConvertActivationTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-4
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-05, 1e-05),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-02, 1e-02),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-4
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-05, 1e-05),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-02, 1e-02),
+            )
 
     def test(self):
         self.run_test()

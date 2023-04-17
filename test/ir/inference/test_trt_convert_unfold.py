@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
-from functools import partial
 from typing import List
 
 import numpy as np
@@ -26,6 +26,9 @@ import paddle.inference as paddle_infer
 class TrtConvertUnfold(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32]
 
     def sample_program_configs(self):
         def generate_input1():
@@ -47,18 +50,19 @@ class TrtConvertUnfold(TrtLayerAutoScanTest):
             }
         ]
         ops = self.generate_op_config(ops_config)
-        for i in range(10):
+        i_list = range(10)
+        grid = [i_list]
+        for i in itertools.product(*grid):
             program_config = ProgramConfig(
                 ops=ops,
                 weights={},
                 inputs={
-                    "input_data": TensorConfig(
-                        data_gen=partial(generate_input1)
-                    ),
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1()
+                    )
                 },
-                outputs=["output_data"],
+                outputs=['output_data'],
             )
-
             yield program_config
 
     def sample_predictor_configs(
@@ -86,17 +90,20 @@ class TrtConvertUnfold(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (0, 3), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (0, 3), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (0, 3), 1e-05)
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (0, 3), 1e-03)
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 2), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 2), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 2), 1e-05)
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 2), 1e-03)
 
     def test(self):
         self.run_test()
