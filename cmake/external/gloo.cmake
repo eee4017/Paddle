@@ -30,6 +30,8 @@ set(GLOO_TAG v0.0.3)
 set(GLOO_LIBRARIES
     "${GLOO_INSTALL_DIR}/lib/libgloo.a"
     CACHE FILEPATH "gloo library." FORCE)
+set(GLOO_CXX_FLAGS "-Wno-error=uninitialized")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GLOO_CXX_FLAGS}")
 
 set(GLOO_PATCH_COMMAND "")
 if(WITH_GPU)
