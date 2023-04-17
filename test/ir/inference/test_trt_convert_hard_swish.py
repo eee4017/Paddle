@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
-from functools import partial
 from typing import Any, Dict, List
 
 import numpy as np
@@ -36,43 +36,39 @@ class TrtConvertHardSwishTest(TrtLayerAutoScanTest):
 
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32]
+
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]]):
             return np.ones([1, 3, 32, 32]).astype(np.float32)
 
-        for threshold in [6.0]:
-            for scale in [6.0]:
-                for offset in [3.0]:
-                    dics = [
-                        {
-                            "threshold": threshold,
-                            "scale": scale,
-                            "offset": offset,
-                        }
-                    ]
-
-                    ops_config = [
-                        {
-                            "op_type": "hard_swish",
-                            "op_inputs": {"X": ["input_data"]},
-                            "op_outputs": {"Out": ["hard_swish_output_data"]},
-                            "op_attrs": dics[0],
-                        }
-                    ]
-                    ops = self.generate_op_config(ops_config)
-
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={},
-                        inputs={
-                            "input_data": TensorConfig(
-                                data_gen=partial(generate_input1, dics)
-                            )
-                        },
-                        outputs=["hard_swish_output_data"],
+        threshold_list = [6.0, 7.0, 100.0, 0.0, -1.0]
+        scale_list = [5.0, 7.0, -1.0, 0.0, 100.0]
+        offset_list = [3.0, 5.0, -1.0, 0.0, 100.0]
+        grid = [threshold_list, scale_list, offset_list]
+        for threshold, scale, offset in itertools.product(*grid):
+            dics = [{'threshold': threshold, 'scale': scale, 'offset': offset}]
+            ops_config = [
+                {
+                    'op_type': 'hard_swish',
+                    'op_inputs': {'X': ['input_data']},
+                    'op_outputs': {'Out': ['hard_swish_output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1(dics)
                     )
-
-                    yield program_config
+                },
+                outputs=['hard_swish_output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -96,25 +92,36 @@ class TrtConvertHardSwishTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def test(self):
         self.run_test()

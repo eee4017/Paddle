@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
-from functools import partial
 from typing import List
 
 import numpy as np
@@ -35,50 +35,51 @@ class TrtConvertEqualOneInputCornerCase(TrtLayerAutoScanTest):
             return False
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input(shape):
             return np.random.random(shape).astype(np.float32)
 
-        for op_type in ["equal", "not_equal"]:
-            for shape in [[], [1, 1], [1, 1, 32], [1, 1, 16, 32]]:
-                for axis in [-1 if len(shape) == 1 or len(shape) == 0 else 1]:
-                    self.dims = len(shape)
-                    dics = [{"axis": axis}, {"in_dtype": 0, "out_dtype": 5}]
-                    ops_config = [
-                        {
-                            "op_type": op_type,
-                            "op_inputs": {
-                                "X": ["input_data1"],
-                                "Y": ["input_data2"],
-                            },
-                            "op_outputs": {"Out": ["compare_output_data"]},
-                            "op_attrs": dics[0],
-                            "outputs_dtype": {"compare_output_data": np.bool_},
-                        },
-                        {
-                            "op_type": "cast",
-                            "op_inputs": {"X": ["compare_output_data"]},
-                            "op_outputs": {"Out": ["output_data"]},
-                            "op_attrs": dics[1],
-                            "outputs_dtype": {"output_data": np.float32},
-                        },
-                    ]
-                    ops = self.generate_op_config(ops_config)
-
-                    program_config = ProgramConfig(
-                        ops=ops,
-                        weights={},
-                        inputs={
-                            "input_data1": TensorConfig(
-                                data_gen=partial(generate_input, shape)
-                            ),
-                            "input_data2": TensorConfig(
-                                data_gen=partial(generate_input, shape)
-                            ),
-                        },
-                        outputs=["output_data"],
-                    )
-                    yield program_config
+        batch_list = [1, 2, 4]
+        shape_list = [[1], [1, 32], [1, 32, 16]]
+        grid = [batch_list, shape_list]
+        for batch, shape in itertools.product(*grid):
+            shape = [batch, *shape]
+            axis = 1
+            self.dims = len(shape)
+            dics = [{'axis': axis}, {'in_dtype': 0, 'out_dtype': 5}]
+            ops_config = [
+                {
+                    'op_type': 'equal',
+                    'op_inputs': {'X': ['input_data1'], 'Y': ['input_data2']},
+                    'op_outputs': {'Out': ['compare_output_data']},
+                    'op_attrs': dics[0],
+                    'op_output_dtype': {'compare_output_data': np.bool_},
+                },
+                {
+                    'op_type': 'cast',
+                    'op_inputs': {'X': ['compare_output_data']},
+                    'op_outputs': {'Out': ['output_data']},
+                    'op_attrs': dics[1],
+                },
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data1': TensorConfig(
+                        data_gen=lambda: generate_input(shape)
+                    ),
+                    'input_data2': TensorConfig(
+                        data_gen=lambda: generate_input(shape)
+                    ),
+                },
+                outputs=['output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -167,14 +168,20 @@ class TrtConvertEqualOneInputCornerCase(TrtLayerAutoScanTest):
 
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def test(self):
         self.trt_param.workspace_size = 1 << 20

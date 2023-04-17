@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
 from functools import partial
 from typing import List
@@ -27,6 +28,9 @@ class TrtConvertGridSampler(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         self.trt_param.workspace_size = 1073741824
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32]
 
     def sample_program_configs(self):
         def generate_input1():
@@ -60,35 +64,35 @@ class TrtConvertGridSampler(TrtLayerAutoScanTest):
                         }
                     )
 
-        for dims in [4, 5]:
-            for desc in descs:
-                self.dims = dims
-                ops_config = [
-                    {
-                        "op_type": "grid_sampler",
-                        "op_inputs": {
-                            "X": ["input_data"],
-                            "Grid": ["grid_data"],
-                        },
-                        "op_outputs": {"Output": ["output_data"]},
-                        "op_attrs": desc,
-                    }
-                ]
-                ops = self.generate_op_config(ops_config)
+        ops_config = [
+            {
+                "op_type": "grid_sampler",
+                "op_inputs": {
+                    "X": ["input_data"],
+                    "Grid": ["grid_data"],
+                },
+                "op_outputs": {"Output": ["output_data"]},
+                "op_attrs": {},
+            }
+        ]
 
-                program_config = ProgramConfig(
-                    ops=ops,
-                    weights={},
-                    inputs={
-                        "input_data": TensorConfig(
-                            data_gen=partial(generate_input1)
-                        ),
-                        "grid_data": TensorConfig(
-                            data_gen=partial(generate_input2)
-                        ),
-                    },
-                    outputs=["output_data"],
-                )
+        ops = self.generate_op_config(ops_config)
+        i_list = range(10)
+        grid = [i_list]
+        for i in itertools.product(*grid):
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1()
+                    ),
+                    'grid_data': TensorConfig(
+                        data_gen=lambda: generate_input2()
+                    ),
+                },
+                outputs=['output_data'],
+            )
 
                 yield program_config
 
@@ -134,13 +138,20 @@ class TrtConvertGridSampler(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (0, 4), 1e-05)
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (0, 4), 1e-03)
         # for dynamic_shape
-        generate_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), (1, 3), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), (1, 3), 1e-3
+        generate_dynamic_shape(attrs)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (self.create_inference_config(), (1, 3), 1e-05)
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (self.create_inference_config(), (1, 3), 1e-03)
 
     def test(self):
         self.run_test()

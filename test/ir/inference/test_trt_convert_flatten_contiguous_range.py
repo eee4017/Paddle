@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
-from functools import partial
 from typing import List
 
 import numpy as np
@@ -26,6 +26,9 @@ import paddle.inference as paddle_infer
 class TrtConvertFlattenContiguousRangeTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input(batch):
@@ -129,25 +132,36 @@ class TrtConvertFlattenContiguousRangeTest(TrtLayerAutoScanTest):
 
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), (1e-3, 1e-3)
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                (1e-03, 1e-03),
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-3, 1e-3)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-03, 1e-03),
+            )
 
     def test(self):
         self.run_test()

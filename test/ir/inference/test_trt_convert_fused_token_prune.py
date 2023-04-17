@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
-from functools import partial
 from typing import Any, Dict, List
 
 import numpy as np
@@ -27,6 +27,9 @@ class TrtConvertFusedTokenPruneTest(TrtLayerAutoScanTest):
     def is_program_valid(self, program_config: ProgramConfig) -> bool:
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32]
+
     def sample_program_configs(self):
         self.trt_param.workspace_size = 1073741824
 
@@ -39,50 +42,48 @@ class TrtConvertFusedTokenPruneTest(TrtLayerAutoScanTest):
         def generate_new_mask(attrs: List[Dict[str, Any]]):
             return np.random.random([4, 12, 32, 32]).astype(np.float32)
 
-        for keep_first_token in [True, False]:
-            for keep_order in [True, False]:
-                dics = [
-                    {
-                        "keep_first_token": keep_first_token,
-                        "keep_order": keep_order,
-                    }
-                ]
-                ops_config = [
-                    {
-                        "op_type": "fused_token_prune",
-                        "op_inputs": {
-                            "Attn": ["attn"],
-                            "X": ["x"],
-                            "Mask": ["mask"],
-                            "NewMask": ["new_mask"],
-                        },
-                        "op_outputs": {
-                            "SlimmedX": ["slimmed_x"],
-                            "CLSInds": ["cls_inds"],
-                        },
-                        "op_attrs": dics[0],
-                    }
-                ]
-                ops = self.generate_op_config(ops_config)
-                program_config = ProgramConfig(
-                    ops=ops,
-                    weights={},
-                    inputs={
-                        "attn": TensorConfig(
-                            data_gen=partial(generate_attn_or_mask, dics)
-                        ),
-                        "x": TensorConfig(data_gen=partial(generate_x, dics)),
-                        "mask": TensorConfig(
-                            data_gen=partial(generate_attn_or_mask, dics)
-                        ),
-                        "new_mask": TensorConfig(
-                            data_gen=partial(generate_new_mask, dics)
-                        ),
+        keep_first_token_list = [True, False]
+        keep_order_list = [True, False]
+        grid = [keep_first_token_list, keep_order_list]
+        for keep_first_token, keep_order in itertools.product(*grid):
+            dics = [
+                {'keep_first_token': keep_first_token, 'keep_order': keep_order}
+            ]
+            ops_config = [
+                {
+                    'op_type': 'fused_token_prune',
+                    'op_inputs': {
+                        'Attn': ['attn'],
+                        'X': ['x'],
+                        'Mask': ['mask'],
+                        'NewMask': ['new_mask'],
                     },
-                    outputs=["slimmed_x", "cls_inds"],
-                )
-
-                yield program_config
+                    'op_outputs': {
+                        'SlimmedX': ['slimmed_x'],
+                        'CLSInds': ['cls_inds'],
+                    },
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'attn': TensorConfig(
+                        data_gen=lambda: generate_attn_or_mask(dics)
+                    ),
+                    'x': TensorConfig(data_gen=lambda: generate_x(dics)),
+                    'mask': TensorConfig(
+                        data_gen=lambda: generate_attn_or_mask(dics)
+                    ),
+                    'new_mask': TensorConfig(
+                        data_gen=lambda: generate_new_mask(dics)
+                    ),
+                },
+                outputs=['slimmed_x', 'cls_inds'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -120,14 +121,20 @@ class TrtConvertFusedTokenPruneTest(TrtLayerAutoScanTest):
         ]
 
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-2, 1e-2)
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), (1e-1, 1e-2)
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-02, 1e-02),
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                (1e-01, 1e-02),
+            )
 
     def test(self):
         self.run_test()
