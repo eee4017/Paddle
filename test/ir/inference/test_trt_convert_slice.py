@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
-from functools import partial
 from typing import Any, Dict, List
 
 import numpy as np
@@ -60,49 +60,57 @@ class TrtConvertSliceTest(TrtLayerAutoScanTest):
                 return False
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]]):
             return np.random.random([6, 6, 64, 64]).astype(np.float32)
 
-        for axes in [[0, 1], [1, 3], [2, 3]]:
-            for starts in [[0, 1]]:
-                for ends in [[2, 2], [5, 5], [1, -1]]:
-                    for decrease_axis in [[], [1], [2], [-1], [-100]]:
-                        for infer_flags in [[-1]]:
-                            dics = [
-                                {
-                                    "axes": axes,
-                                    "starts": starts,
-                                    "ends": ends,
-                                    "decrease_axis": decrease_axis,
-                                    "infer_flags": infer_flags,
-                                }
-                            ]
-
-                            ops_config = [
-                                {
-                                    "op_type": "slice",
-                                    "op_inputs": {"Input": ["input_data"]},
-                                    "op_outputs": {
-                                        "Out": ["slice_output_data"]
-                                    },
-                                    "op_attrs": dics[0],
-                                }
-                            ]
-                            ops = self.generate_op_config(ops_config)
-
-                            program_config = ProgramConfig(
-                                ops=ops,
-                                weights={},
-                                inputs={
-                                    "input_data": TensorConfig(
-                                        data_gen=partial(generate_input1, dics)
-                                    )
-                                },
-                                outputs=["slice_output_data"],
-                            )
-
-                            yield program_config
+        axes_list = [[0, 1], [1, 3], [2, 3]]
+        starts_list = [[0, 1]]
+        ends_list = [[2, 2], [5, 5], [1, -1]]
+        decrease_axis_list = [[], [1], [2], [-1], [-100]]
+        infer_flags_list = [[-1]]
+        grid = [
+            axes_list,
+            starts_list,
+            ends_list,
+            decrease_axis_list,
+            infer_flags_list,
+        ]
+        for axes, starts, ends, decrease_axis, infer_flags in itertools.product(
+            *grid
+        ):
+            dics = [
+                {
+                    'axes': axes,
+                    'starts': starts,
+                    'ends': ends,
+                    'decrease_axis': decrease_axis,
+                    'infer_flags': infer_flags,
+                }
+            ]
+            ops_config = [
+                {
+                    'op_type': 'slice',
+                    'op_inputs': {'Input': ['input_data']},
+                    'op_outputs': {'Out': ['slice_output_data']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'input_data': TensorConfig(
+                        data_gen=lambda: generate_input1(dics)
+                    )
+                },
+                outputs=['slice_output_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -130,25 +138,36 @@ class TrtConvertSliceTest(TrtLayerAutoScanTest):
         self.trt_param.max_batch_size = 9
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def test(self):
         # TODO(inference): fix.

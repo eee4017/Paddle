@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
-from functools import partial
 from typing import Any, Dict, List
 
 import numpy as np
@@ -39,6 +39,9 @@ class TrtConvertStackTest(TrtLayerAutoScanTest):
             return False
 
         return True
+
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
 
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]], batch):
@@ -77,6 +80,7 @@ class TrtConvertStackTest(TrtLayerAutoScanTest):
             elif self.dims == 0:
                 return np.random.random([]).astype(np.float32)
 
+<<<<<<< HEAD
         for dims in [0, 1, 2, 3, 4]:
             for batch in [1, 4]:
                 for axis in [-2, -1, 0, 1, 2, 3]:
@@ -115,6 +119,43 @@ class TrtConvertStackTest(TrtLayerAutoScanTest):
                     )
 
                     yield program_config
+=======
+        dims_list = [1, 2, 3, 4]
+        batch_list = [1, 4]
+        axis_list = [-2, -1, 0, 1, 2, 3]
+        grid = [dims_list, batch_list, axis_list]
+        for dims, batch, axis in itertools.product(*grid):
+            self.dims = dims
+            dics = [{'axis': axis}, {}]
+            ops_config = [
+                {
+                    'op_type': 'stack',
+                    'op_inputs': {
+                        'X': ['stack_input1', 'stack_input2', 'stack_input3']
+                    },
+                    'op_outputs': {'Y': ['stack_output']},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'stack_input1': TensorConfig(
+                        data_gen=lambda: generate_input1(dics, batch)
+                    ),
+                    'stack_input2': TensorConfig(
+                        data_gen=lambda: generate_input2(dics, batch)
+                    ),
+                    'stack_input3': TensorConfig(
+                        data_gen=lambda: generate_input3(dics, batch)
+                    ),
+                },
+                outputs=['stack_output'],
+            )
+            yield program_config
+>>>>>>> test_trt_convert_[s-t]
 
     def sample_predictor_configs(
         self, program_config
@@ -217,25 +258,36 @@ class TrtConvertStackTest(TrtLayerAutoScanTest):
         ]
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def add_skip_trt_case(self):
         pass

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
 from functools import partial
 from typing import Any, Dict, List
@@ -80,6 +81,9 @@ class TrtConvertSplitTest(TrtLayerAutoScanTest):
 
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
         def generate_input1(attrs: List[Dict[str, Any]], batch):
             if self.dims == 4:
@@ -100,94 +104,92 @@ class TrtConvertSplitTest(TrtLayerAutoScanTest):
         def generate_SectionsTensorList2(attrs: List[Dict[str, Any]]):
             return np.array([14]).astype(np.int32)
 
-        for num_input in [0, 1]:
-            for dims in [1, 2, 3, 4]:
-                for batch in [3, 6, 9]:
-                    for Out in [
-                        ["output_var0", "output_var1"],
-                        ["output_var0", "output_var1", "output_var2"],
-                    ]:
-                        for sections in [
-                            [],
-                            [1, 2],
-                            [2, 1],
-                            [10, 14],
-                            [1, 1, 1],
-                            [2, 2, 2],
-                            [3, 3, 3],
-                            [3, 7, 14],
-                        ]:
-                            for num in [0, 3]:
-                                for axis in [0, 1, 2, 3]:
-                                    self.batch = batch
-                                    self.num_input = num_input
-                                    self.dims = dims
-                                    dics = [
-                                        {
-                                            "sections": sections,
-                                            "num": num,
-                                            "axis": axis,
-                                        },
-                                        {},
-                                    ]
-
-                                    dics_intput = [
-                                        {
-                                            "X": ["split_input"],
-                                            "AxisTensor": ["AxisTensor"],
-                                            "SectionsTensorList": [
-                                                "SectionsTensorList1",
-                                                "SectionsTensorList2",
-                                            ],
-                                        },
-                                        {"X": ["split_input"]},
-                                    ]
-                                    dics_intputs = [
-                                        {
-                                            "AxisTensor": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_AxisTensor, dics
-                                                )
-                                            ),
-                                            "SectionsTensorList1": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_SectionsTensorList1,
-                                                    dics,
-                                                )
-                                            ),
-                                            "SectionsTensorList2": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_SectionsTensorList2,
-                                                    dics,
-                                                )
-                                            ),
-                                        },
-                                        {},
-                                    ]
-
-                                    ops_config = [
-                                        {
-                                            "op_type": "split",
-                                            "op_inputs": dics_intput[num_input],
-                                            "op_outputs": {"Out": Out},
-                                            "op_attrs": dics[0],
-                                        }
-                                    ]
-                                    ops = self.generate_op_config(ops_config)
-                                    program_config = ProgramConfig(
-                                        ops=ops,
-                                        weights=dics_intputs[num_input],
-                                        inputs={
-                                            "split_input": TensorConfig(
-                                                data_gen=partial(
-                                                    generate_input1, dics, batch
-                                                )
-                                            )
-                                        },
-                                        outputs=Out,
-                                    )
-
-                                    yield program_config
+        num_input_list = [0, 1]
+        dims_list = [1, 2, 3, 4]
+        batch_list = [3, 6, 9]
+        Out_list = [
+            ['output_var0', 'output_var1'],
+            ['output_var0', 'output_var1', 'output_var2'],
+        ]
+        sections_list = [
+            [],
+            [1, 2],
+            [2, 1],
+            [10, 14],
+            [1, 1, 1],
+            [2, 2, 2],
+            [3, 3, 3],
+            [3, 7, 14],
+        ]
+        num_list = [0, 3]
+        axis_list = [0, 1, 2, 3]
+        grid = [
+            num_input_list,
+            dims_list,
+            batch_list,
+            Out_list,
+            sections_list,
+            num_list,
+            axis_list,
+        ]
+        for (
+            num_input,
+            dims,
+            batch,
+            Out,
+            sections,
+            num,
+            axis,
+        ) in itertools.product(*grid):
+            self.batch = batch
+            self.num_input = num_input
+            self.dims = dims
+            dics = [{'sections': sections, 'num': num, 'axis': axis}, {}]
+            dics_intput = [
+                {
+                    'X': ['split_input'],
+                    'AxisTensor': ['AxisTensor'],
+                    'SectionsTensorList': [
+                        'SectionsTensorList1',
+                        'SectionsTensorList2',
+                    ],
+                },
+                {'X': ['split_input']},
+            ]
+            dics_intputs = [
+                {
+                    'AxisTensor': TensorConfig(
+                        data_gen=partial(generate_AxisTensor, dics)
+                    ),
+                    'SectionsTensorList1': TensorConfig(
+                        data_gen=partial(generate_SectionsTensorList1, dics)
+                    ),
+                    'SectionsTensorList2': TensorConfig(
+                        data_gen=partial(generate_SectionsTensorList2, dics)
+                    ),
+                },
+                {},
+            ]
+            ops_config = [
+                {
+                    'op_type': 'split',
+                    'op_inputs': dics_intput[num_input],
+                    'op_outputs': {'Out': Out},
+                    'op_attrs': dics[0],
+                }
+            ]
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights=dics_intputs[num_input],
+                inputs={
+                    'split_input': TensorConfig(
+                        data_gen=lambda: generate_input1(dics, batch)
+                    )
+                },
+                outputs=Out,
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -249,25 +251,36 @@ class TrtConvertSplitTest(TrtLayerAutoScanTest):
         self.trt_param.max_batch_size = 9
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def add_skip_trt_case(self):
         def teller1(program_config, predictor_config):

@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import unittest
-from functools import partial
 from typing import Any, Dict, List
 
 import numpy as np
@@ -33,63 +33,64 @@ class TrtConvertSplitTest(TrtLayerAutoScanTest):
             return False
         return True
 
+    def get_avalible_input_type(self) -> List[np.dtype]:
+        return [np.float32, np.float16]
+
     def sample_program_configs(self):
-        for dims in [2, 3, 4]:
-            for batch in [3, 4]:
-                for axes in [[2], [2, 3], [-1]]:
-                    for attr_axis in [True, False]:
-                        self.batch = batch
-                        self.dims = dims
-                        self.axes = axes
-                        dics = [{"axes": []}]
-                        if attr_axis:
-                            dics[0]["axes"] = axes
-                        ops_config = [
-                            {
-                                "op_type": "squeeze2",
-                                "op_inputs": {"X": ["in_data"]},
-                                "op_outputs": {
-                                    "Out": ["out_data"],
-                                    "XShape": ["XShape_data"],
-                                },
-                                "op_attrs": dics[0],
-                            }
-                        ]
-                        # new_axes is the update of axes
-                        new_axes = list(axes)
-                        for i in range(len(new_axes)):
-                            if new_axes[i] < 0:
-                                new_axes[i] += dims
-                        if max(new_axes) >= dims:
-                            continue
-                        # generate input data
-                        self.input_shape = [1] * dims
-                        for i in range(dims):
-                            self.input_shape[i] = np.random.randint(1, 20)
+        def update_shape(dims, batch, axes):
+            # new_axes is the update of axes
+            new_axes = list(axes)
+            for i in range(len(new_axes)):
+                if new_axes[i] < 0:
+                    new_axes[i] += dims
 
-                        def generate_input1(attrs: List[Dict[str, Any]], batch):
-                            self.input_shape[0] = batch
-                            for i in new_axes:
-                                self.input_shape[i] = 1
-                            return np.random.random(self.input_shape).astype(
-                                np.float32
-                            )
+            # generate input data
+            self.input_shape = [1] * dims
+            for i in range(dims):
+                self.input_shape[i] = np.random.randint(1, 20)
+            return new_axes
 
-                        ops = self.generate_op_config(ops_config)
-                        program_config = ProgramConfig(
-                            ops=ops,
-                            weights={},
-                            inputs={
-                                "in_data": TensorConfig(
-                                    data_gen=partial(
-                                        generate_input1, dics, batch
-                                    )
-                                )
-                            },
-                            outputs=["out_data"],
-                        )
+        def generate_input1(attrs: List[Dict[str, Any]], batch, new_axes):
+            self.input_shape[0] = batch
+            for i in new_axes:
+                self.input_shape[i] = 1
+            return np.random.random(self.input_shape).astype(np.float32)
 
-                        yield program_config
+        dims_list = [2, 3, 4]
+        batch_list = [3, 4]
+        axes_list = [[2], [2, 3], [-1]]
+        grid = [dims_list, batch_list, axes_list]
+        for dims, batch, axes in itertools.product(*grid):
+            self.batch = batch
+            self.dims = dims
+            self.axes = axes
+            dics = [{'axes': axes}]
+            ops_config = [
+                {
+                    'op_type': 'squeeze2',
+                    'op_inputs': {'X': ['in_data']},
+                    'op_outputs': {
+                        'Out': ['out_data'],
+                        'XShape': ['XShape_data'],
+                    },
+                    'op_attrs': dics[0],
+                }
+            ]
+            new_axes = update_shape(dims, batch, axes)
+            if max(new_axes) >= dims:
+                continue
+            ops = self.generate_op_config(ops_config)
+            program_config = ProgramConfig(
+                ops=ops,
+                weights={},
+                inputs={
+                    'in_data': TensorConfig(
+                        data_gen=lambda: generate_input1(dics, batch, new_axes)
+                    )
+                },
+                outputs=['out_data'],
+            )
+            yield program_config
 
     def sample_predictor_configs(
         self, program_config
@@ -116,25 +117,36 @@ class TrtConvertSplitTest(TrtLayerAutoScanTest):
         self.trt_param.max_batch_size = 9
         # for static_shape
         clear_dynamic_shape()
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, False
-        ), 1e-3
-
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, False),
+                1e-03,
+            )
         # for dynamic_shape
         generate_dynamic_shape(attrs)
-        self.trt_param.precision = paddle_infer.PrecisionType.Float32
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-5
-        self.trt_param.precision = paddle_infer.PrecisionType.Half
-        yield self.create_inference_config(), generate_trt_nodes_num(
-            attrs, True
-        ), 1e-3
+        if program_config.get_input_type() == np.float32:
+            self.trt_param.precision = paddle_infer.PrecisionType.Float32
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-05,
+            )
+        if program_config.get_input_type() == np.float16:
+            self.trt_param.precision = paddle_infer.PrecisionType.Half
+            yield (
+                self.create_inference_config(),
+                generate_trt_nodes_num(attrs, True),
+                1e-03,
+            )
 
     def add_skip_trt_case(self):
         pass
