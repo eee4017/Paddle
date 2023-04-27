@@ -649,6 +649,7 @@ class TrtLayerAutoScanTest(AutoScanTest):
                 use_static=self.trt_param.use_static,
                 use_calib_mode=self.trt_param.use_calib_mode,
             )
+            config.enable_force_obey_fp16_constraints()
             if self.dynamic_shape.min_input_shape and (
                 self.dynamic_shape.min_input_shape.keys()
                 == self.dynamic_shape.max_input_shape.keys()

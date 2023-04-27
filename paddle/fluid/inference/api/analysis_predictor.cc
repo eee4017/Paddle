@@ -1397,6 +1397,8 @@ void AnalysisPredictor::PrepareArgument() {
     argument_->SetTensorRtAllowBuildAtRuntime(
         config_.trt_allow_build_at_runtime());
     argument_->SetTensorRtUseInspector(config_.trt_use_inspector_);
+    argument_->SetForceObeyFP16Constraints(
+        config_.trt_force_obey_fp16_constraints_);
     argument_->SetTrtEngineMemorySharing(config_.trt_engine_memory_sharing());
   }
 

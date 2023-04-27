@@ -34,6 +34,22 @@ namespace tensorrt {
 int TensorRTEngine::runtime_batch_ = 1;
 thread_local int TensorRTEngine::predictor_id_per_thread = -1;
 
+#if IS_TRT_VERSION_GE(8610)
+// The IsFP16BlacklistLayer function acts as a temporary blacklist for Conv2D
+// layers due to a bug in TensorRT versions 8.6.1.0 and later. It prevents
+// precision settings on Conv2D layers to mitigate the issue until the TensorRT
+// team provides a permanent fix.
+bool IsFP16BlacklistLayer(const nvinfer1::ILayer *layer) {
+  if (auto conv_layer =
+          dynamic_cast<const nvinfer1::IConvolutionLayer *>(layer)) {
+    if (conv_layer->getNbGroups() > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+#endif
+
 void TensorRTEngine::Weight::SetDataType(phi::DataType type) {
   nvinfer1::DataType nv_type = nvinfer1::DataType::kFLOAT;
   switch (type) {
@@ -211,11 +227,64 @@ void TensorRTEngine::FreezeNetwork() {
   if (enable_fp16) {
     bool support_fp16 = infer_builder_->platformHasFastFp16();
     infer_builder_config_->setFlag(nvinfer1::BuilderFlag::kFP16);
+
+#if IS_TRT_VERSION_GE(8210)
+    infer_builder_config_->setFlag(
+        nvinfer1::BuilderFlag::kOBEY_PRECISION_CONSTRAINTS);
+
+#endif
+#if IS_TRT_VERSION_GE(8610)
+    if (force_obey_fp16_constraints_) {
+      infer_builder_config_->setPreviewFeature(
+          nvinfer1::PreviewFeature::
+              kDISABLE_EXTERNAL_TACTIC_SOURCES_FOR_CORE_0805,
+          false);
+    }
+#endif
+
     if (!support_fp16) {
       LOG(INFO) << "You specify FP16 mode, but the hardware do not support "
                    "FP16 speed up, use FP32 instead.";
     } else {
       LOG(INFO) << "Run Paddle-TRT FP16 mode";
+#if IS_TRT_VERSION_GE(8210)
+      bool is_valid_network = true;
+#if IS_TRT_VERSION_GE(8610)
+      for (int i = 0; i < network()->getNbLayers(); i++) {
+        auto layer = network()->getLayer(i);
+        is_valid_network &= (!IsFP16BlacklistLayer(layer));
+      }
+#endif
+      if (is_valid_network && force_obey_fp16_constraints_) {
+        bool is_all_float = true;
+
+        for (int i = 0; i < network()->getNbLayers(); i++) {
+          auto layer = network()->getLayer(i);
+          for (int j = 0; j < layer->getNbInputs(); j++) {
+            auto t = layer->getInput(j);
+            if (t) {
+              is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
+                               t->getType() == nvinfer1::DataType::kHALF);
+            }
+          }
+          for (int j = 0; j < layer->getNbOutputs(); j++) {
+            auto t = layer->getOutput(j);
+            if (t) {
+              is_all_float &= (t->getType() == nvinfer1::DataType::kFLOAT ||
+                               t->getType() == nvinfer1::DataType::kHALF);
+            }
+          }
+          if (is_all_float) {
+            LOG(INFO) << "Set " << layer->getName() << " into FP16";
+            layer->setPrecision(nvinfer1::DataType::kHALF);
+            for (int j = 0; j < layer->getNbOutputs(); j++) {
+              auto t = layer->getOutput(j);
+              if (t) layer->setOutputType(j, nvinfer1::DataType::kHALF);
+            }
+          }
+        }
+      }
+#endif
     }
   }
 

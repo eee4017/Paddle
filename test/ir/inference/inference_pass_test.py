@@ -127,6 +127,13 @@ class InferencePassTest(unittest.TestCase):
                         "The inspector option is not set correctly.",
                     )
 
+                if self.trt_parameters.force_obey_fp16_constraints:
+                    config.enable_force_obey_fp16_constraints()
+                    self.assertTrue(
+                        config.tensorrt_force_obey_fp16_constraints(),
+                        "The force_obey_fp16_constraints option is not set correctly.",
+                    )
+
                 if self.dynamic_shape_params:
                     config.set_trt_dynamic_shape_info(
                         self.dynamic_shape_params.min_input_shape,
@@ -283,6 +290,7 @@ class InferencePassTest(unittest.TestCase):
             use_static,
             use_calib_mode,
             use_inspector=False,
+            force_obey_fp16_constraints=False,
         ):
             self.workspace_size = workspace_size
             self.max_batch_size = max_batch_size
@@ -291,6 +299,7 @@ class InferencePassTest(unittest.TestCase):
             self.use_static = use_static
             self.use_calib_mode = use_calib_mode
             self.use_inspector = use_inspector
+            self.force_obey_fp16_constraints = force_obey_fp16_constraints
 
     class DynamicShapeParam:
         '''

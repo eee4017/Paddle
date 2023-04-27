@@ -877,8 +877,12 @@ void BindAnalysisConfig(py::module *m) {
       .def("tensorrt_dla_enabled", &AnalysisConfig::tensorrt_dla_enabled)
       .def("enable_tensorrt_inspector",
            &AnalysisConfig::EnableTensorRtInspector)
+      .def("enable_force_obey_fp16_constraints",
+           &AnalysisConfig::EnableForceObeyFP16Constraints)
       .def("tensorrt_inspector_enabled",
            &AnalysisConfig::tensorrt_inspector_enabled)
+      .def("tensorrt_force_obey_fp16_constraints",
+           &AnalysisConfig::tensorrt_force_obey_fp16_constraints)
       .def("tensorrt_engine_enabled", &AnalysisConfig::tensorrt_engine_enabled)
       .def("enable_dlnne",
            &AnalysisConfig::EnableDlnne,

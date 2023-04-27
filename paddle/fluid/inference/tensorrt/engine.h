@@ -738,6 +738,15 @@ class TensorRTEngine {
   void GetEngineInfo();
 
   void SetUseInspector(bool use_inspector) { use_inspector_ = use_inspector; }
+<<<<<<< HEAD
+=======
+  void SetUseSparseWeights(bool use_sparse_weights) {
+    use_sparse_weights_ = use_sparse_weights;
+  }
+  void SetForceObeyFP16Constraints(bool force_obey_fp16_constraints) {
+    force_obey_fp16_constraints_ = force_obey_fp16_constraints;
+  }
+>>>>>>> Enforce FP16 Constraints for Numerical Stability
   void SetScope(const framework::Scope& scope) { scope_ = &scope; }
 
   void SetContextMemorySharing(bool context_memory_sharing) {
@@ -826,6 +835,7 @@ class TensorRTEngine {
 #endif
   std::mutex mutex_;
   bool use_inspector_;
+  bool force_obey_fp16_constraints_{false};
 
  public:
   thread_local static int predictor_id_per_thread;
