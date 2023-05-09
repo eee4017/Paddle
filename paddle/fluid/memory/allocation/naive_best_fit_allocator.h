@@ -30,6 +30,7 @@ namespace allocation {
 
 class NaiveBestFitAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "NaiveBestFitAllocator"; } 
   explicit NaiveBestFitAllocator(const platform::Place &p) : place_(p) {}
 
   bool IsAllocThreadSafe() const override { return true; }

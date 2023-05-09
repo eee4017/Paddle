@@ -112,8 +112,12 @@ inline T *RestoreHostMemIfCapturingCUDAGraph(T *host_mem, size_t size) {
     size_t nbytes = size * sizeof(T);
     void *new_host_mem = new uint8_t[nbytes];
     std::memcpy(new_host_mem, host_mem, nbytes);
-    AddResetCallbackIfCapturingCUDAGraph(
-        [new_host_mem] { delete[] reinterpret_cast<uint8_t *>(new_host_mem); });
+    AddResetCallbackIfCapturingCUDAGraph([new_host_mem, size] {
+      delete[] reinterpret_cast<uint8_t *>(new_host_mem);
+      std::cerr << "Destruct " << new_host_mem << " " << size << std::endl;
+    });
+    std::cerr << "RestoreHostMemIfCapturingCUDAGraph " << host_mem << " "
+              << new_host_mem << " " << size << std::endl;
     return reinterpret_cast<T *>(new_host_mem);
   }
 #endif

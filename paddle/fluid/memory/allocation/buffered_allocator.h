@@ -32,6 +32,7 @@ namespace allocation {
 // underlying_allocator_
 class BufferedAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "BufferedAllocator_" + underlying_allocator_->DebugAllocatorName(); } 
   explicit BufferedAllocator(std::shared_ptr<Allocator> allocator);
 
   ~BufferedAllocator();

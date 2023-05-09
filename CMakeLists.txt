@@ -62,6 +62,7 @@ option(WITH_IPU "Compile PaddlePaddle with Graphcore IPU" OFF)
 option(WITH_ONNXRUNTIME "Compile PaddlePaddle with ONNXRUNTIME" OFF)
 option(WITH_CUSPARSELT "Compile PaddlePaddle with CUSPARSELT" OFF)
 option(WITH_SETUP_INSTALL "Compile PaddlePaddle with setup.py" OFF)
+option(RUN_GENERATE_CUTLASS_KERNEL "Run Cutlass kernel code generation if enabled" OFF)
 # Note(zhouwei): It use option above, so put here
 include(init)
 include(generic) # simplify cmake module

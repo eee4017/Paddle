@@ -24,6 +24,7 @@ namespace allocation {
 
 class AlignedAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "AlignedAllocator_" + underlying_allocator_->DebugAllocatorName(); } 
   AlignedAllocator(const std::shared_ptr<Allocator>& underlying_allocator,
                    size_t alignment);
 

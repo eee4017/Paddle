@@ -137,6 +137,8 @@ using DecoratedAllocationPtr =
 // Base interface class of memory Allocator.
 class Allocator : public phi::Allocator {
  public:
+  virtual std::string DebugAllocatorName() const { return "Allocator"; } 
+
   static void AllocationDeleter(phi::Allocation* allocation) {
     Allocator* allocator =
         static_cast<Allocation*>(allocation)->TopDecoratedAllocator();

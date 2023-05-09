@@ -22,6 +22,7 @@ namespace allocation {
 // Allocator uses `cudaHostAlloc`
 class CPUPinnedAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "CPUPinnedAllocator"; } 
   bool IsAllocThreadSafe() const override;
 
  protected:

@@ -32,6 +32,7 @@ class StubAllocation : public Allocation {
 
 class StubAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "StubAllocator"; } 
   void ResetCounter() {
     construct_count_ = 0;
     destruct_count_ = 0;

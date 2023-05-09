@@ -53,6 +53,7 @@ struct BlockAllocation : public Allocation {
  */
 class VirtualMemoryAutoGrowthBestFitAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "VirtualMemoryAutoGrowthBestFitAllocator_" + underlying_allocator_->DebugAllocatorName(); } 
   VirtualMemoryAutoGrowthBestFitAllocator(
       const std::shared_ptr<Allocator> &underlying_allocator,
       size_t alignment,

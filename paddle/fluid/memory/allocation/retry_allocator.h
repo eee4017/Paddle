@@ -30,6 +30,7 @@ namespace allocation {
 
 class RetryAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "RetryAllocator_" + underlying_allocator_->DebugAllocatorName(); } 
   RetryAllocator(std::shared_ptr<Allocator> allocator, size_t retry_ms)
       : underlying_allocator_(std::move(allocator)), retry_time_(retry_ms) {
     PADDLE_ENFORCE_NOT_NULL(

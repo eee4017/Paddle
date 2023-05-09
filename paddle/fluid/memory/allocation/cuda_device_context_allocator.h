@@ -75,6 +75,7 @@ class GPUContextAllocation : public Allocation {
  */
 class GPUContextAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "GPUContextAllocator"; } 
   explicit GPUContextAllocator(platform::CUDAPlace place,
                                gpuStream_t default_stream)
       : place_(place), default_stream_(default_stream) {

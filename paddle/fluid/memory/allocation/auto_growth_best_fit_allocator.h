@@ -29,6 +29,7 @@ namespace allocation {
 
 class AutoGrowthBestFitAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "AutoGrowthBestFitAllocator_"+ underlying_allocator_->DebugAllocatorName(); } 
   AutoGrowthBestFitAllocator(
       const std::shared_ptr<Allocator> &underlying_allocator,
       size_t alignment,

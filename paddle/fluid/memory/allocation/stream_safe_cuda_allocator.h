@@ -62,6 +62,7 @@ class StreamSafeCUDAAllocator
     : public Allocator,
       public std::enable_shared_from_this<StreamSafeCUDAAllocator> {
  public:
+  std::string DebugAllocatorName() const override { return "StreamSafeCUDAAllocator_" + underlying_allocator_->DebugAllocatorName(); } 
   StreamSafeCUDAAllocator(std::shared_ptr<Allocator> underlying_allocator,
                           platform::CUDAPlace place,
                           gpuStream_t default_stream,

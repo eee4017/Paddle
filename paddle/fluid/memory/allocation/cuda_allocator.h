@@ -24,6 +24,7 @@ namespace allocation {
 
 class CUDAAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "CUDAllocator"; } 
   explicit CUDAAllocator(const platform::CUDAPlace& place) : place_(place) {}
 
   bool IsAllocThreadSafe() const override;

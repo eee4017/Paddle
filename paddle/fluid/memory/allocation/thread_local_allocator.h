@@ -77,6 +77,7 @@ class ThreadLocalCUDAAllocatorPool {
 
 class ThreadLocalCUDAAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "ThreadLocalCUDAAllocator"; } 
   explicit ThreadLocalCUDAAllocator(const platform::CUDAPlace& p)
       : gpu_id_(p.device) {}
 

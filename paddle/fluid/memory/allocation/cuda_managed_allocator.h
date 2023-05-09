@@ -22,6 +22,7 @@ namespace allocation {
 
 class CUDAManagedAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "CUDAManagedAllocator"; } 
   explicit CUDAManagedAllocator(const platform::CUDAPlace& place)
       : place_(place) {}
 

@@ -34,6 +34,7 @@ namespace allocation {
 // Allocate memory using NVIDIA's virtual memory management technology
 class CUDAVirtualMemAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "CUDAVirtualMemAllocator"; } 
   explicit CUDAVirtualMemAllocator(const platform::CUDAPlace& place);
 
   bool IsAllocThreadSafe() const override;

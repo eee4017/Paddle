@@ -24,6 +24,7 @@ namespace allocation {
 
 class StatAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return ("StatAllocator_" + underlying_allocator_->DebugAllocatorName()); } 
   explicit StatAllocator(std::shared_ptr<Allocator> underlying_allocator)
       : underlying_allocator_(std::move(underlying_allocator)) {}
 

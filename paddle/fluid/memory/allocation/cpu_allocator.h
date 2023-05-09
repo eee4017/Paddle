@@ -33,6 +33,7 @@ namespace allocation {
 // an open-sourced allocator into Paddle.
 class CPUAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "CPUAllocator"; } 
   constexpr static size_t kAlignment = 4096UL;
   bool IsAllocThreadSafe() const override;
 

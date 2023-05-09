@@ -24,6 +24,7 @@ namespace allocation {
 
 class CustomAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "CustomAllocator"; } 
   explicit CustomAllocator(const platform::CustomPlace& place)
       : place_(place) {}
 

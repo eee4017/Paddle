@@ -28,6 +28,7 @@ namespace allocation {
 
 class RecordedAllocator : public Allocator {
  protected:
+  std::string DebugAllocatorName() const override { return "RecordedAllocator"; } 
   phi::Allocation *AllocateImpl(size_t size) override {
     allocated_size_ += size;
     return new Allocation(malloc(size), size, platform::CPUPlace());
@@ -74,6 +75,7 @@ static void TestFreeIdleChunk(bool free_idle_chunk,
 
 class LimitedResourceAllocator : public Allocator {
  public:
+  std::string DebugAllocatorName() const override { return "LimitedResourceAllocator"; } 
   explicit LimitedResourceAllocator(size_t capacity) : capacity_(capacity) {}
 
   size_t AllocatedSize() const { return allocated_size_; }
