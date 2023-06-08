@@ -970,7 +970,8 @@ class Optimizer:
         self._create_global_learning_rate()
 
         if in_dygraph_mode():
-            found_inf = self._get_auxiliary_var('found_inf')
+            # found_inf = self._get_auxiliary_var('found_inf')
+            found_inf = False
             if found_inf:
                 if isinstance(found_inf, core.eager.Tensor):
                     self._set_auxiliary_var('found_inf', True)

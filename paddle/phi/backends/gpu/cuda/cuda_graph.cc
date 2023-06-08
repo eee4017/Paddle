@@ -208,6 +208,7 @@ void CUDAGraph::EndSegmentCapture() {
   std::unordered_set<cudaGraphNode_t> visited;
   VLOG(10) << "SetSeedFunc number : "
            << capturing_graph_->set_seed_funcs_.size();
+  /*
   for (const auto &set_seed_func : capturing_graph_->set_seed_funcs_) {
     bool found = false;
     for (auto node : sorted_nodes) {
@@ -243,7 +244,7 @@ void CUDAGraph::EndSegmentCapture() {
                           "Cannot find the corresponding random CUDA kernel."));
   }
   capturing_graph_->set_seed_funcs_.clear();
-
+*/
   cudaGraphExec_t exec_graph;
   PADDLE_ENFORCE_GPU_SUCCESS(
       cudaGraphInstantiate(&exec_graph, graph, nullptr, nullptr, 0));

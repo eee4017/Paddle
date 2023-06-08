@@ -28,6 +28,22 @@ namespace backends {
 namespace gpu {
 
 #ifdef PADDLE_WITH_CUDA
+// The PD_RECORD_CUDA_GRAPH_RANDOM_KERNEL macro is used to manage CUDA kernels 
+// that require random seed generation, especially in the context of CUDA graphs. 
+// CUDA graphs are sequences of CUDA operations that are captured and can be 
+// efficiently replayed. However, each replay of the graph should ideally have a 
+// unique sequence of random numbers if randomness is involved in any operation.
+// 
+// This macro:
+// - Checks if the CUDA Graph is currently capturing and if a specified condition is true.
+// - Sets up a lambda function for generating and incrementing the random seeds.
+// - If the graph is capturing, records the kernel's details for later usage.
+// - Executes the CUDA kernel function with the given grid and block sizes, shared memory size,
+//   CUDA stream, and kernel arguments.
+//
+// In summary, this macro helps to ensure that every time the graph is launched, the seed
+// for the random number generation in the kernels is correctly set, thus maintaining the 
+// intended randomness in the operation.
 #define PD_RECORD_CUDA_GRAPH_RANDOM_KERNEL(__cond,                           \
                                            __kernel_func,                    \
                                            __grid,                           \
@@ -39,6 +55,8 @@ namespace gpu {
                                            __offset_expr,                    \
                                            ...)                              \
   do {                                                                       \
+    VLOG(4) << "PD_RECORD_CUDA_GRAPH_RANDOM_KERNEL" << __FILE__ << " "       \
+            << __LINE__;                                                     \
     if (::phi::backends::gpu::CUDAGraph::IsThisThreadCapturing() &&          \
         (__cond)) {                                                          \
       using __Helper =                                                       \

@@ -380,7 +380,8 @@ class AmpScaler:
         if not self._enable:
             return
 
-        if self._cache_founf_inf:
+        # if self._cache_founf_inf:
+        if False:
             self._incr_count = 0
             self._decr_count = self._decr_count + 1
             if self._decr_count == self._decr_every_n_nan_or_inf:
